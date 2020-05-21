@@ -1,0 +1,1 @@
+RD | Rx = 3; Freq = 0.6 Hz | Gain = -24.2971 dB | Channel Capacity = 0.000319145 bits/channel
