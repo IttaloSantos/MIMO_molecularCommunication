@@ -1,3 +1,0 @@
-RD | Rx = 3; Freq = 0.6 Hz | Gain = -24.4882 dB
-RD | Rx = 3; Freq = 0.6 Hz | Gain = -24.4029 dB
-RD | Rx = 3; Freq = 0.6 Hz | Gain = -24.458 dB
