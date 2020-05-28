@@ -15,8 +15,8 @@ using namespace std;
 #define n_NA 1 // Sodium charge
 #define n_CA 2 // Calcium charge
 #define F 96485.3329 // [s.A/mol] Faraday's constant
-#define low_threshold 0.01
-#define high_threshold 0.04
+#define low_threshold 0.0
+#define high_threshold 0.01
 
 double conc, tx_conc, diameter_cell = 5, deltaamp;
 
@@ -375,6 +375,15 @@ public:
 		}else{
 			return -1;
 		}
+	}
+
+	int conditional_accumulate(vector<int>::iterator first, vector<int>::iterator last, int value){
+		double sum = 0;
+		for (; first != last; first++){
+			if(*first == value) sum += *first;
+			// cout << "bit: " << *first << endl;
+		}
+		return sum;
 	}
 
 };
@@ -1213,7 +1222,7 @@ public:
 	}
 };
 
-void simulation(int destination, double frequency, string topology, double time_slot) {
+void simulation(int destination, double frequency, string topology, double time_slot, ofstream& file_results) {
 	Network tecido;
 	int tx_x = trunc(DIM_X / 2);
 	int tx_y = trunc(DIM_Y / 2);
@@ -1262,8 +1271,8 @@ void simulation(int destination, double frequency, string topology, double time_
 	vector<double> choice(5);
 	vector<int> connections(nConnections), qtd_reactions(9 + QTD_DIFFUSIONS * (nConnections * 3)), NCX_mode_vector, Rx_states, Tx_states;
 	double simulation_time = 200, current_time = 0, current_time_calcium = 0, current_time_sodium_inter = 0, current_time_sodium_extra = 0, current_time_calcium_extra = 0, current_time_NCX = 0, current_time_NCX_AUX = 0, current_time_calcium_aux = 0;
-	double tau_max = 100000, tau_calcium=0, tau_sodium_inter=0, tau_NCX=0, tau_sodium_extra=0, tau_calcium_extra=0, E_signal = 0, E_noise = 0, c_in=0, c_out=0, current_time_tx = 0, current_time_rx = 0;
-	int reaction, int_time = 0, x_c, y_c, z_c, bit;
+	double tau_max = 100000, tau_calcium=0, tau_sodium_inter=0, tau_NCX=0, tau_sodium_extra=0, tau_calcium_extra=0, E_signal = 0, E_noise = 0, c_in=0, c_out=0, current_time_mod_demod = 0;
+	int reaction, int_time = 0, x_c, y_c, z_c, bit, time_slots_number = 0;
 	bool diffusion_error = false, tau_flag = false;
 
 	vector<double> C_tx, C_rx;
@@ -1328,8 +1337,7 @@ void simulation(int destination, double frequency, string topology, double time_
 				choice = gillespie.calciumReactions();
 				reaction = choice[0];
 				tau_max = choice[4];
-				current_time_tx += tau_max*1000;
-				current_time_rx += tau_max*1000;
+				current_time_mod_demod += tau_max*1000;
 				
 				x_c = choice[1];
 				y_c = choice[2];
@@ -1397,25 +1405,9 @@ void simulation(int destination, double frequency, string topology, double time_
 								// Modulation and Demodulation - Begin
 								if (x_c == tx_x && y_c == tx_y && z_c == tx_z){
 									tecido.accumulate(x_c, y_c, z_c, "C_variation", ALPHA);
-
-									if (current_time_tx >= time_slot){
-										bit = tecido.mod_demod(tx_x, tx_y, tx_z);
-										if (bit != -1) Tx_states.push_back(bit);
-										cout << "Tx Bit: " << bit << endl;
-										tecido.set(x_c, y_c, z_c, "C_variation", 0);
-										current_time_tx = 0;
-									}
 								}
 								if (connections[conn] == tecido.getId(tx_x+destination, tx_y, tx_z)){
 									tecido.accumulate(connections[conn], "C_variation", ALPHA);
-
-									if (current_time_rx >= time_slot){ // Rx não está entrando !!!!!
-										bit = tecido.mod_demod(tx_x+destination, tx_y, tx_z);
-										if (bit != -1) Rx_states.push_back(bit);
-										cout << "Rx Bit: " << bit << endl;
-										tecido.set(tx_x+destination, tx_y, tx_z, "C_variation", 0);
-										current_time_rx = 0;
-									}
 								}
 								// Modulation and Demodulation - End
 
@@ -1434,6 +1426,22 @@ void simulation(int destination, double frequency, string topology, double time_
 				// /* DIFFUSION ERROR => NO INCREMENT TIME */
 								
 			// }
+
+			// Modulation and Demodulation - Begin
+			if (current_time_mod_demod >= time_slot){
+				bit = tecido.mod_demod(tx_x, tx_y, tx_z); // Tx
+				Tx_states.push_back(bit); 
+				// cout << "Tx Bit: " << bit << endl;
+				tecido.set(x_c, y_c, z_c, "C_variation", 0);
+
+				bit = tecido.mod_demod(tx_x+destination, tx_y, tx_z); // Rx
+				Rx_states.push_back(bit);
+				// cout << "Rx Bit: " << bit << endl;
+				tecido.set(tx_x+destination, tx_y, tx_z, "C_variation", 0);
+
+				current_time_mod_demod = 0;
+			}
+			// Modulation and Demodulation - End
 
 			// Saving concentration signal into csv file 
 			if (x_c != tx_x && y_c != tx_y && z_c != tx_z) {
@@ -1537,10 +1545,6 @@ void simulation(int destination, double frequency, string topology, double time_
 	}
 	cdatafile.close();
 
-	ofstream file_results;
-	file_results.open("results/results.csv");
-	file_results << "Topology,Range,Freq (Hz),Gain (dB),Channel Capacity (bits),\n"; 
-
 	/* ### CALCULATING GAIN ### */
 
 	double acc_c_tx = accumulate(C_tx.begin(), C_tx.end(), 0.0);
@@ -1559,22 +1563,27 @@ void simulation(int destination, double frequency, string topology, double time_
 	double channel_capacity = 0, px[bit_number] = {}, py[bit_number] = {}, pyx_joint[bit_number][bit_number] = {};
 	vector<double> I_xy(pow(2, bit_number));
 
-	px[1] = accumulate(Tx_states.begin(), Tx_states.end(), 0.0)/Tx_states.size(); // Tx e Rx não possuem o mesmo tamanho !!!!!
+	px[1] = tecido.conditional_accumulate(Tx_states.begin(), Tx_states.end(), 1)/Tx_states.size(); 
 	px[0] = 1 - px[1];
 
-	py[1] = accumulate(Rx_states.begin(), Rx_states.end(), 0.0)/Rx_states.size();
+	py[1] = tecido.conditional_accumulate(Rx_states.begin(), Rx_states.end(), 1)/Rx_states.size();
+	if (py[1] == 0) py[1] = 0.00000000001;
 	py[0] = 1 - py[1];
 
-	for (int i = 0; i < Tx_states.size()-destination; i++){	
-		if (Rx_states[i+destination] == 1 && Tx_states[i] == 0){
+	for (int i = 0; i < Tx_states.size()-time_slots_number; i++){ // ERRADO !!!
+		// cout << Rx_states[i+time_slots_number] << endl;
+		
+		if (Rx_states[i+time_slots_number] == 1 && Tx_states[i] == 0){
 			pyx_joint[1][0]++; // Number of y1 given x0
 		}
-		else if (Rx_states[i+destination] == 1 && Tx_states[i] == 1){
+		else if (Rx_states[i+time_slots_number] == 1 && Tx_states[i] == 1){
 			pyx_joint[1][1]++; // Number of y1 given x1
 		}
 	}
 	
 	pyx_joint[1][0] = pyx_joint[1][0]/Tx_states.size(); // Number of y1 given x0
+	if (pyx_joint[1][0] == 0) pyx_joint[1][0] = 0.00000000001;
+
 	pyx_joint[1][1] = pyx_joint[1][1]/Tx_states.size(); // Number of y1 given x1
 	pyx_joint[0][0] = 1 - pyx_joint[1][0]; // Number of y0 given x0
 	pyx_joint[0][1] = 1 - pyx_joint[1][1]; // Number of y0 given x1
@@ -1591,29 +1600,32 @@ void simulation(int destination, double frequency, string topology, double time_
 
 	file_results << topology << "," << destination << "," << frequency <<  "," << calc_gain << "," << channel_capacity << ",\n";
 
-	file_results.close();
 };
 
 /* MAIN */
 int main(){
 
 	int simulation_number = 1;
-	double time_slot = 2; //5,8,10 s
+	double time_slot = 0.1; //0.1,,0.5,0.8,1 s
 	vector<double> frequencies {0.6}; //{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1};[Hz]
 	string topology = "RD";
-	int destination = 3;
+	int destination = 2;
+
+	ofstream file_results;
+	file_results.open("results/results.csv");
+	file_results << "Topology,Range,Freq (Hz),Gain (dB),Channel Capacity (bits),\n"; 
+
 	for (int j = 0; j < simulation_number; j++)
 	{
 		for (double frequency : frequencies)
 		{
 			// for (int destination = 1; destination < 7; destination++)
 			// {
-				simulation(destination, frequency, topology, time_slot);
+				simulation(destination, frequency, topology, time_slot, file_results);
 			// }
-			
 		}
-		
 	}
+	file_results.close();
 
 	return 0;
 };
