@@ -377,7 +377,7 @@ public:
 		}
 	}
 
-	int conditional_accumulate(vector<int>::iterator first, vector<int>::iterator last, int value){
+	double conditional_accumulate(vector<int>::iterator first, vector<int>::iterator last, int value){
 		double sum = 0;
 		for (; first != last; first++){
 			if(*first == value) sum += *first;
@@ -1272,7 +1272,7 @@ void simulation(int destination, double frequency, string topology, double time_
 	vector<int> connections(nConnections), qtd_reactions(9 + QTD_DIFFUSIONS * (nConnections * 3)), NCX_mode_vector, Rx_states, Tx_states;
 	double simulation_time = 200, current_time = 0, current_time_calcium = 0, current_time_sodium_inter = 0, current_time_sodium_extra = 0, current_time_calcium_extra = 0, current_time_NCX = 0, current_time_NCX_AUX = 0, current_time_calcium_aux = 0;
 	double tau_max = 100000, tau_calcium=0, tau_sodium_inter=0, tau_NCX=0, tau_sodium_extra=0, tau_calcium_extra=0, E_signal = 0, E_noise = 0, c_in=0, c_out=0, current_time_mod_demod = 0;
-	int reaction, int_time = 0, x_c, y_c, z_c, bit, time_slots_number = 0;
+	int reaction, int_time = 0, x_c, y_c, z_c, bit, time_slots_number = destination-1;
 	bool diffusion_error = false, tau_flag = false;
 
 	vector<double> C_tx, C_rx;
@@ -1557,48 +1557,50 @@ void simulation(int destination, double frequency, string topology, double time_
 
 	/* ### END GAIN ### */
 
-	/* ### CALCULATING SISO CHANEL CAPACITY - BEGIN ### */
+	/* ### CALCULATING SISO CHANEL CAPACITY AND BER - BEGIN ### */
 
 	int bit_number = 2;
-	double channel_capacity = 0, px[bit_number] = {}, py[bit_number] = {}, pyx_joint[bit_number][bit_number] = {};
-	vector<double> I_xy(pow(2, bit_number));
+	double channel_capacity = 0, px[bit_number] = {}, py[bit_number] = {}, pyx_joint[bit_number][bit_number] = {}, BER = 0;
+	vector<double> I_xy;
 
-	px[1] = tecido.conditional_accumulate(Tx_states.begin(), Tx_states.end(), 1)/Tx_states.size(); 
+	px[1] = tecido.conditional_accumulate(Tx_states.begin(), Tx_states.end(), 1)/Tx_states.size();
 	px[0] = 1 - px[1];
-
+	
 	py[1] = tecido.conditional_accumulate(Rx_states.begin(), Rx_states.end(), 1)/Rx_states.size();
 	if (py[1] == 0) py[1] = 0.00000000001;
 	py[0] = 1 - py[1];
 
-	for (int i = 0; i < Tx_states.size()-time_slots_number; i++){ // ERRADO !!!
+	for (int i = 0; i < Tx_states.size()-time_slots_number; i++){
 		// cout << Rx_states[i+time_slots_number] << endl;
-		
-		if (Rx_states[i+time_slots_number] == 1 && Tx_states[i] == 0){
-			pyx_joint[1][0]++; // Number of y1 given x0
-		}
-		else if (Rx_states[i+time_slots_number] == 1 && Tx_states[i] == 1){
-			pyx_joint[1][1]++; // Number of y1 given x1
-		}
+
+		if (Rx_states[i+time_slots_number] != -1 && Tx_states[i] != -1) pyx_joint[Rx_states[i+time_slots_number]][Tx_states[i]]++;
+		if (Rx_states[i+time_slots_number] != Tx_states[i]) BER++;
 	}
-	
-	pyx_joint[1][0] = pyx_joint[1][0]/Tx_states.size(); // Number of y1 given x0
-	if (pyx_joint[1][0] == 0) pyx_joint[1][0] = 0.00000000001;
+	pyx_joint[0][0] = Tx_states.size()-pyx_joint[1][0];
+	pyx_joint[0][1] = Tx_states.size()-pyx_joint[1][1];
+	BER = BER/Tx_states.size();
 
-	pyx_joint[1][1] = pyx_joint[1][1]/Tx_states.size(); // Number of y1 given x1
-	pyx_joint[0][0] = 1 - pyx_joint[1][0]; // Number of y0 given x0
-	pyx_joint[0][1] = 1 - pyx_joint[1][1]; // Number of y0 given x1
-
-	for (int y = 0; y < bit_number; y++){
+	for (int y = 0; y < bit_number; y++){ // Number of y1 given x0; Number of y1 given x1; Number of y0 given x0; Number of y0 given x1
 		for (int x = 0; x < bit_number; x++){
-			I_xy.push_back(x * pyx_joint[y][x] * log2(pyx_joint[y][x]/py[y]));
+			pyx_joint[y][x] = pyx_joint[y][x]/Tx_states.size();
+			// cout << "Pyx_joint: " << pyx_joint[y][x] << endl;
+			// cout << "Py: " << py[y] << endl;
+			if (pyx_joint[y][x] == 0) pyx_joint[y][x] = 0.00000000001;
+
+			I_xy.push_back(px[x] * pyx_joint[y][x] * log2(pyx_joint[y][x]/py[y])); // Mutual Information
 		}
 	}
+
+	// vector<double>::iterator first = I_xy.begin();
+	// for (; first != I_xy.end(); first++){
+	// 	cout << "I_xy: " << *first << endl;
+	// }
 
 	channel_capacity = *max_element(I_xy.begin(), I_xy.end());
 
 	/* ### CALCULATING SISO CHANEL CAPACITY - END ### */
 
-	file_results << topology << "," << destination << "," << frequency <<  "," << calc_gain << "," << channel_capacity << ",\n";
+	file_results << topology << "," << destination << "," << frequency <<  "," << calc_gain << "," << channel_capacity << "," << BER << ",\n";
 
 };
 
@@ -1607,22 +1609,22 @@ int main(){
 
 	int simulation_number = 1;
 	double time_slot = 0.1; //0.1,,0.5,0.8,1 s
-	vector<double> frequencies {0.6}; //{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1};[Hz]
+	vector<double> frequencies{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1}; //{0.6};[Hz]
 	string topology = "RD";
-	int destination = 2;
+	// int destination = 1;
 
 	ofstream file_results;
 	file_results.open("results/results.csv");
-	file_results << "Topology,Range,Freq (Hz),Gain (dB),Channel Capacity (bits),\n"; 
+	file_results << "Topology,Range,Freq (Hz),Gain (dB),Channel Capacity (bits),BER,\n"; 
 
 	for (int j = 0; j < simulation_number; j++)
 	{
 		for (double frequency : frequencies)
 		{
-			// for (int destination = 1; destination < 7; destination++)
-			// {
+			for (int destination = 1; destination < 7; destination++)
+			{
 				simulation(destination, frequency, topology, time_slot, file_results);
-			// }
+			}
 		}
 	}
 	file_results.close();
