@@ -402,7 +402,7 @@ public:
 
 	void rx_geometry(string rx_geometry, int Rx_number, int destination, int tx_x, int tx_y, int tx_z){
 		if (rx_geometry == "VL"){ // Up to DIM_X
-			for (int i = 0; i < Rx_number; i++){ 
+			for (int i = 0; i < Rx_number; i++){
 				rx_id.push_back(getId(tx_x+destination+i, tx_y+1, tx_z));
 			}
 		}else if (rx_geometry == "HL"){ // Up to DIM_Y
@@ -1266,9 +1266,9 @@ public:
 
 void simulation(int destination, double frequency, string topology, double time_slot, ofstream& file_results, int Rx_number, string rx_geometry) {
 	Network tecido;
-	int tx_x = trunc(DIM_X / 7), tx_x_2 = trunc(DIM_X / 7); // Rx depends on that position
-	int tx_y = trunc(DIM_Y / 2), tx_y_2 = trunc(4 * DIM_Y / 5); // Rx depends on that position
-	int tx_z = trunc(2 * DIM_Z / 3), tx_z_2 = trunc(2 * DIM_Z / 3); // Rx depends on that position
+	int tx_x = trunc(DIM_X / 15), tx_x_2 = trunc(DIM_X / 15); // Rx depends on that position
+	int tx_y = trunc(DIM_Y / 5), tx_y_2 = trunc(3 * DIM_Y / 5); // Rx depends on that position
+	int tx_z = trunc(DIM_Z / 3), tx_z_2 = trunc(DIM_Z / 3); // Rx depends on that position
 	int radius = 0;
 
 	// SETTING THE Rx GEOMETRY
@@ -1305,9 +1305,9 @@ void simulation(int destination, double frequency, string topology, double time_
 	// tecido.printTissuef(exportfile, 0); // Writes the tissue's initial state to the file
 	
 	// Opening file for sotring concentration data at time simulation
-	ofstream cdatafile;
-	cdatafile.open("temp/cdata.csv");
-	cdatafile << "time,c_in,\n"; 
+	// ofstream cdatafile;
+	// cdatafile.open("temp/cdata.csv");
+	// cdatafile << "time,c_in,\n"; 
 
 	// Inicializando o Algoritmo de Gillespie
 	Gillespie gillespie(&tecido);
@@ -1318,9 +1318,9 @@ void simulation(int destination, double frequency, string topology, double time_
 	vector<int> connections(nConnections), qtd_reactions(9 + QTD_DIFFUSIONS * (nConnections * 3)), NCX_mode_vector, Rx_states, Tx_states;
 	double simulation_time = 200, current_time = 0, current_time_calcium = 0, current_time_sodium_inter = 0, current_time_NCX = 0;
 	double tau_max = 100000, tau_calcium=0, tau_sodium_inter=0, tau_NCX=0, E_signal = 0, E_noise = 0, c_in=0, c_out=0, current_time_mod_demod = 0;
-	int reaction, int_time = 0, x_c, y_c, z_c, bit, bit2, time_slots_number = destination-1;
+	int reaction, int_time = 0, x_c, y_c, z_c, bit, bit2, bit3, time_slots_number = destination-1;
 	bool diffusion_error = false, tau_flag = false;
-
+	vector<int>::iterator first;
 	vector<double> C_tx, C_rx;
 
 	while (simulation_time > current_time) {
@@ -1453,7 +1453,7 @@ void simulation(int destination, double frequency, string topology, double time_
 								if ( (x_c == tx_x && y_c == tx_y && z_c == tx_z) || (x_c == tx_x_2 && y_c == tx_y_2 && z_c == tx_z_2) ){
 									tecido.accumulate(x_c, y_c, z_c, "C_variation", ALPHA);
 								}
-								vector<int>::iterator first = tecido.rx_id.begin();
+								first = tecido.rx_id.begin();
 								for (; first != tecido.rx_id.end(); first++){
 									if (connections[conn] == *first) tecido.accumulate(*first, "C_variation", ALPHA);
 								}
@@ -1492,25 +1492,31 @@ void simulation(int destination, double frequency, string topology, double time_
 				tecido.set(tx_x_2, tx_y_2, tx_z_2, "C_variation", 0);
 
 				// Receiver
-				vector<int>::iterator first = tecido.rx_id.begin();
-				for (; first != tecido.rx_id.end(); first++){
-					bit = tecido.mod_demod(*first); // Rx
-					Rx_states.push_back(bit);
+				first = tecido.rx_id.begin();
+				bit2 = 0;
+				bit3 = 0;
+				for (; first != tecido.rx_id.end(); first++){ // Rx
+					bit = tecido.mod_demod(*first);
+					if (bit == 1) bit2++;
+					else if (bit == 0) bit3++;
 					// cout << "Rx Bit: " << bit << endl;
 					tecido.set(*first, "C_variation", 0);
 				}
-				
+				if (bit2 != 0) Rx_states.push_back(1);
+				else if (bit3 > trunc(Rx_number/2)) Rx_states.push_back(0);
+				else Rx_states.push_back(-1);
+
 				current_time_mod_demod = 0;
 			}
 			// Modulation and Demodulation - End
 
 			// Saving concentration signal into csv file 
-			if (x_c != tx_x && y_c != tx_y && z_c != tx_z) {
-					c_in = tecido.get(x_c, y_c, z_c, "C");
-					cdatafile << int_time << "," << c_in << ",\n";
-			}else{
-				cdatafile << int_time << "," << c_in << ",\n";
-			}
+			// if (x_c != tx_x && y_c != tx_y && z_c != tx_z) {
+			// 		c_in = tecido.get(x_c, y_c, z_c, "C");
+			// 		cdatafile << int_time << "," << c_in << ",\n";
+			// }else{
+			// 	cdatafile << int_time << "," << c_in << ",\n";
+			// }
 
 			//INTERCELLULAR SODIUM REACTIONS
 			// if (current_time_sodium_inter<tau_max) {
@@ -1574,13 +1580,17 @@ void simulation(int destination, double frequency, string topology, double time_
 
 			/* STORAGE OF CALCIUM CONCENTRATION */
 			C_tx.push_back(tecido.get(tx_x,tx_y,tx_z, "C")+tecido.get(tx_x_2,tx_y_2,tx_z_2, "C"));
-			C_rx.push_back(tecido.get(tx_x + destination, tx_y, tx_z, "C"));
+			
+			first = tecido.rx_id.begin();
+			c_out = 0;
+			for (; first != tecido.rx_id.end(); first++) c_out = c_out + tecido.get(*first, "C");
+			C_rx.push_back(c_out);
 
 			//  || current_time_sodium_inter<tau_max
 
 		// } while (current_time_calcium<tau_max || current_time_NCX<tau_max);
 	}
-	cdatafile.close();
+	// cdatafile.close();
 
 	/* ### CALCULATING GAIN ### */
 
@@ -1628,7 +1638,7 @@ void simulation(int destination, double frequency, string topology, double time_
 		}
 	}
 
-	// vector<double>::iterator first = I_xy.begin();
+	// first = I_xy.begin();
 	// for (; first != I_xy.end(); first++){
 	// 	cout << "I_xy: " << *first << endl;
 	// }
@@ -1646,10 +1656,10 @@ int main(){
 
 	int simulation_number = 1, Rx_number = 5; // 0 < Rx_number < x && Rx_number <= y
 	double time_slot = 0.1; //0.1,,0.5,0.8,1 s
-	vector<double> frequencies{0.6}; //{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1};[Hz]
+	vector<double> frequencies{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1}; //{0.6};[Hz]
 	string topology = "RD";
 	string rx_geometry = "HL"; // HL = Horizontal Line; VL = Vertical Line; X = Cross (<= 5 cells); D = Diamond (== 5 cells)
-	int destination = 1;
+	// int destination = 1;
 
 	ofstream file_results;
 	file_results.open("results/results.csv");
@@ -1659,10 +1669,10 @@ int main(){
 	{
 		for (double frequency : frequencies)
 		{
-			// for (int destination = 1; destination < 7; destination++)
-			// {
+			for (int destination = 1; destination < 7; destination++)
+			{
 				simulation(destination, frequency, topology, time_slot, file_results, Rx_number, rx_geometry);
-			// }
+			}
 		}
 	}
 	file_results.close();
