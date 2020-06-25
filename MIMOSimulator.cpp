@@ -15,8 +15,9 @@ using namespace std;
 #define n_NA 1 // Sodium charge
 #define n_CA 2 // Calcium charge
 #define F 96485.3329 // [s.A/mol] Faraday's constant
+#define c_pulse 0.5
 #define low_threshold 0.0
-#define high_threshold 0.01
+#define high_threshold 0.05
 
 double conc, tx_conc, diameter_cell = 5, deltaamp;
 
@@ -1289,8 +1290,8 @@ void simulation(int destination, double frequency, string topology, double time_
 	}
 
 	// SETTING THE VALUES
-	tecido.set(tx_x, tx_y, tx_z, "C", 0.5*SCALE); // Tx 1
-	tecido.set(tx_x_2, tx_y_2, tx_z_2, "C", 0.5*SCALE); // Tx 2
+	tecido.set(tx_x, tx_y, tx_z, "C", c_pulse*SCALE); // Tx 1
+	tecido.set(tx_x_2, tx_y_2, tx_z_2, "C", c_pulse*SCALE); // Tx 2
 	// tecido.set(tx_x, tx_y, tx_z, "Na_i", 20000*SCALE); // Quais as referências?
 	// tecido.set(tx_x, tx_y, tx_z, "C_o", 20*SCALE); // Quais as referências?
 	// tecido.set(tx_x, tx_y, tx_z, "Na_o", 1000*SCALE); // Quais as referências?
@@ -1318,10 +1319,11 @@ void simulation(int destination, double frequency, string topology, double time_
 	vector<int> connections(nConnections), qtd_reactions(9 + QTD_DIFFUSIONS * (nConnections * 3)), NCX_mode_vector, Rx_states, Tx_states;
 	double simulation_time = 200, current_time = 0, current_time_calcium = 0, current_time_sodium_inter = 0, current_time_NCX = 0;
 	double tau_max = 100000, tau_calcium=0, tau_sodium_inter=0, tau_NCX=0, E_signal = 0, E_noise = 0, c_in=0, c_out=0, current_time_mod_demod = 0;
-	int reaction, int_time = 0, x_c, y_c, z_c, bit, bit2, bit3, time_slots_number = destination-1;
-	bool diffusion_error = false, tau_flag = false;
+	double c_variation_tx, c_variation_rx = 0;
+	int reaction, int_time = 0, x_c, y_c, z_c, bit, bit2, bit3;
+	bool diffusion_error = false, tau_flag = false, variation_flag = true;
 	vector<int>::iterator first;
-	vector<double> C_tx, C_rx;
+	vector<double> C_tx, C_rx, delay_time;
 
 	while (simulation_time > current_time) {
 		
@@ -1370,8 +1372,8 @@ void simulation(int destination, double frequency, string topology, double time_
 
 				// Calcium and sodium oscillations
 				if (int_time % ((int) (1 / frequency)) == 0){
-					tecido.accumulate(tx_x, tx_y, tx_z, "C", 0.5*SCALE);
-					tecido.accumulate(tx_x_2, tx_y_2, tx_z_2, "C", 0.5*SCALE);
+					tecido.accumulate(tx_x, tx_y, tx_z, "C", c_pulse*SCALE);
+					tecido.accumulate(tx_x_2, tx_y_2, tx_z_2, "C", c_pulse*SCALE);
 					//tecido.accumulate(tx_x, tx_y, tx_z, "Na_i", 20000*SCALE);
 				}
 			}
@@ -1385,6 +1387,7 @@ void simulation(int destination, double frequency, string topology, double time_
 				reaction = choice[0];
 				tau_max = choice[4];
 				current_time_mod_demod += tau_max*1000;
+				// cout << "Current time modulation: " << current_time_mod_demod << endl;
 				
 				x_c = choice[1];
 				y_c = choice[2];
@@ -1476,9 +1479,26 @@ void simulation(int destination, double frequency, string topology, double time_
 
 				// current_time_calcium += tau_calcium;					
 			// }
-
+			
 			// Modulation and Demodulation - Begin
 			if (current_time_mod_demod >= time_slot){
+				
+				// *****Delay calculation
+				if (variation_flag){
+					c_variation_tx = tecido.get(tx_x, tx_y, tx_z, "C_variation") + tecido.get(tx_x_2, tx_y_2, tx_z_2, "C_variation");
+					variation_flag = false;
+				}
+				first = tecido.rx_id.begin();
+				for (; first != tecido.rx_id.end(); first++) c_variation_rx += tecido.get(*first, "C_variation");
+				
+				cout << "C_variation_tx: " << tecido.get(tx_x, tx_y, tx_z, "C_variation") << endl;
+				cout << "C_variation_rx: " << c_variation_rx << endl;
+				if (abs(c_variation_tx - c_variation_rx) <= c_variation_tx/2){
+					delay_time.push_back(current_time);
+					variation_flag = true;
+					c_variation_rx = 0;
+				}
+
 				// Transmitter
 				bit = tecido.mod_demod(tx_x, tx_y, tx_z); // Tx1
 				bit2 = tecido.mod_demod(tx_x_2, tx_y_2, tx_z_2); // Tx2
@@ -1492,9 +1512,9 @@ void simulation(int destination, double frequency, string topology, double time_
 				tecido.set(tx_x_2, tx_y_2, tx_z_2, "C_variation", 0);
 
 				// Receiver
-				first = tecido.rx_id.begin();
 				bit2 = 0;
 				bit3 = 0;
+				first = tecido.rx_id.begin();
 				for (; first != tecido.rx_id.end(); first++){ // Rx
 					bit = tecido.mod_demod(*first);
 					if (bit == 1) bit2++;
@@ -1581,8 +1601,8 @@ void simulation(int destination, double frequency, string topology, double time_
 			/* STORAGE OF CALCIUM CONCENTRATION */
 			C_tx.push_back(tecido.get(tx_x,tx_y,tx_z, "C")+tecido.get(tx_x_2,tx_y_2,tx_z_2, "C"));
 			
-			first = tecido.rx_id.begin();
 			c_out = 0;
+			first = tecido.rx_id.begin();
 			for (; first != tecido.rx_id.end(); first++) c_out = c_out + tecido.get(*first, "C");
 			C_rx.push_back(c_out);
 
@@ -1600,16 +1620,31 @@ void simulation(int destination, double frequency, string topology, double time_
 	// cout << "E_signal = " << E_signal << "; E_noise = " << E_noise << endl;
 
 	// double calc_SNR = 10 * log10(E_signal/E_noise);
-	double calc_gain = 10 * log10((acc_c_rx / C_rx.size()) / ((acc_c_tx) / C_tx.size()));
+	double calc_gain = 10 * log10((acc_c_rx / (Rx_number*C_rx.size())) / ((acc_c_tx) / (2*C_tx.size())));
 
 	/* ### END GAIN ### */
 
-	/* ### CALCULATING SISO CHANEL CAPACITY AND BER - BEGIN ### */
+	/* ### CALCULATING MEAN DELAY - BEGIN ### */
 
-	int bit_number = 2;
+	double delay = 0;
+	vector<double> mean_delay;
+	adjacent_difference(delay_time.begin(), delay_time.end(), mean_delay.begin());
+
+	vector<double>::iterator first_delay = mean_delay.begin();
+	for (; first_delay != mean_delay.end(); first_delay++){
+		cout << "Delay: " << *first_delay << endl;
+	}
+	if (mean_delay.size() != 0) delay = accumulate(mean_delay.begin(), mean_delay.end(), 0.0)/mean_delay.size();
+	// cout << "Delay: " << delay << endl;
+
+	/* ### CALCULATING MEAN DELAY - END ### */
+
+	/* ### CALCULATING MIMO CHANEL CAPACITY AND BER - BEGIN ### */
+
+	int bit_number = 2, time_slots_number = trunc(delay/time_slot);
 	double channel_capacity = 0, px[bit_number] = {}, py[bit_number] = {}, pyx_joint[bit_number][bit_number] = {}, BER = 0;
 	vector<double> I_xy;
-
+	cout << "Time_slot_number: " << time_slots_number << endl;
 	px[1] = tecido.conditional_accumulate(Tx_states.begin(), Tx_states.end(), 1)/Tx_states.size();
 	px[0] = 1 - px[1];
 	
@@ -1645,9 +1680,9 @@ void simulation(int destination, double frequency, string topology, double time_
 
 	channel_capacity = *max_element(I_xy.begin(), I_xy.end());
 
-	/* ### CALCULATING SISO CHANEL CAPACITY - END ### */
+	/* ### CALCULATING MIMO CHANEL CAPACITY - END ### */
 
-	file_results << topology << "," << destination << "," << frequency <<  "," << calc_gain << "," << channel_capacity << "," << BER << ",\n";
+	file_results << topology << "," << frequency << "," << destination << "," << time_slot << "," << calc_gain << "," << channel_capacity << "," << BER << "," << delay << ",\n";
 
 };
 
@@ -1655,15 +1690,15 @@ void simulation(int destination, double frequency, string topology, double time_
 int main(){
 
 	int simulation_number = 1, Rx_number = 5; // 0 < Rx_number < x && Rx_number <= y
-	double time_slot = 0.1; //0.1,,0.5,0.8,1 s
-	vector<double> frequencies{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1}; //{0.6};[Hz]
+	vector<double> time_slot{0.5}; //{0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1}; s
+	vector<double> frequencies{0.6}; //{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1};[Hz]
 	string topology = "RD";
-	string rx_geometry = "HL"; // HL = Horizontal Line; VL = Vertical Line; X = Cross (<= 5 cells); D = Diamond (== 5 cells)
+	string rx_geometry = "D"; // HL = Horizontal Line; VL = Vertical Line; X = Cross (<= 5 cells); D = Diamond (== 5 cells)
 	// int destination = 1;
 
 	ofstream file_results;
 	file_results.open("results/results.csv");
-	file_results << "Topology,Range,Freq (Hz),Gain (dB),Channel Capacity (bits),BER,\n"; 
+	file_results << "Topology,Freq (Hz),Range,Time Slot (s),Gain (dB),Channel Capacity (bits),BER,Delay (s),\n"; 
 
 	for (int j = 0; j < simulation_number; j++)
 	{
@@ -1671,7 +1706,10 @@ int main(){
 		{
 			for (int destination = 1; destination < 7; destination++)
 			{
-				simulation(destination, frequency, topology, time_slot, file_results, Rx_number, rx_geometry);
+				for (double time:time_slot)
+				{
+					simulation(destination, frequency, topology, time, file_results, Rx_number, rx_geometry);
+				}
 			}
 		}
 	}

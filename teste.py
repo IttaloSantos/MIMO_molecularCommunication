@@ -3,19 +3,21 @@ import numpy as np
 from scipy import signal
 import pandas as pd
 
-data = pd.read_csv('temp/cdata.csv')
-data.head()
+######## C_in ########
 
-time = data['time'].values
-c_in = data['c_in'].values
+# data = pd.read_csv('temp/cdata.csv')
+# data.head()
 
-fig = go.Figure()
+# time = data['time'].values
+# c_in = data['c_in'].values
 
-fig.add_trace(go.Scatter(
-    x=time, y=c_in,
-    name='[Ca2+]_i',
-    marker_color='rgba(0, 0, 0, .7)' # gray
-))
+# fig = go.Figure()
+
+# fig.add_trace(go.Scatter(
+#     x=time, y=c_in,
+#     name='[Ca2+]_i',
+#     marker_color='rgba(0, 0, 0, .7)' # gray
+# ))
 
 # fig.add_trace(go.Scatter(
 #     x=QTDE_NCX, y=NCX02,
@@ -24,17 +26,17 @@ fig.add_trace(go.Scatter(
 # ))
 
 # Set options common to all traces with fig.update_traces
-fig.update_traces(mode='lines', marker_line_width=2, marker_size=10)
-fig.update_layout(xaxis_title='<b>Time (s)<b>',
-                yaxis_title='<b>Concentration (uM)<b>',
-                yaxis_zeroline=False,
-                xaxis_zeroline=False,
-                font=dict(size=16),
-                paper_bgcolor='rgba(0,0,0,0)',plot_bgcolor='rgba(0,0,0,0)')
-fig.update_yaxes(showline=True, linewidth=2, linecolor='black', showgrid=True, gridwidth=1, gridcolor='lightgray')
-fig.update_xaxes(showline=True, linewidth=2, linecolor='black', showgrid=True, gridwidth=1, gridcolor='lightgray')
+# fig.update_traces(mode='lines', marker_line_width=2, marker_size=10)
+# fig.update_layout(xaxis_title='<b>Time (s)<b>',
+#                 yaxis_title='<b>Concentration (uM)<b>',
+#                 yaxis_zeroline=False,
+#                 xaxis_zeroline=False,
+#                 font=dict(size=16),
+#                 paper_bgcolor='rgba(0,0,0,0)',plot_bgcolor='rgba(0,0,0,0)')
+# fig.update_yaxes(showline=True, linewidth=2, linecolor='black', showgrid=True, gridwidth=1, gridcolor='lightgray')
+# fig.update_xaxes(showline=True, linewidth=2, linecolor='black', showgrid=True, gridwidth=1, gridcolor='lightgray')
 
-fig.show()
+# fig.show()
 
 ########## SNR ##########
 
@@ -107,3 +109,52 @@ fig.show()
 # # fig.update_xaxes(size=12)
 
 # fig.show()
+
+########## Semilog plot ##########
+
+data = pd.read_csv('temp/cdata.csv')
+data.head()
+
+time_slot = data['Time Slot'].values
+HL = data['Horizontal Line'].values
+VL = data['Vertical Line'].values
+C = data['Cross'].values
+D = data['Diamond'].values
+
+fig = go.Figure()
+
+fig.add_trace(go.Scatter(
+    x=time_slot, y=HL,
+    name='Horizontal Line',
+    marker_color='rgba(0, 102, 255, .9)' # Blue
+))
+
+fig.add_trace(go.Scatter(
+    x=time_slot, y=VL,
+    name='Vertical Line',
+    marker_color='rgba(0, 204, 0, .9)' # Green
+))
+
+fig.add_trace(go.Scatter(
+    x=time_slot, y=C,
+    name='Cross',
+    marker_color='rgba(0, 0, 0, .7)' # gray
+))
+
+fig.add_trace(go.Scatter(
+    x=time_slot, y=D,
+    name='Diamond',
+    marker_color='rgba(204, 0, 0, .9)' # Red
+))
+
+fig.update_traces(mode='lines', marker_line_width=2, marker_size=10)
+fig.update_layout(yaxis_type="log", xaxis_title='<b>Time Slot (s)<b>',
+                yaxis_title='<b>BER<b>',
+                yaxis_zeroline=False,
+                xaxis_zeroline=False,
+                font=dict(size=16),
+                paper_bgcolor='rgba(0,0,0,0)',plot_bgcolor='rgba(0,0,0,0)')
+fig.update_yaxes(showline=True, linewidth=2, linecolor='black', showgrid=True, gridwidth=1, gridcolor='lightgray')
+fig.update_xaxes(showline=True, linewidth=2, linecolor='black', showgrid=True, gridwidth=1, gridcolor='lightgray')
+
+fig.show()
