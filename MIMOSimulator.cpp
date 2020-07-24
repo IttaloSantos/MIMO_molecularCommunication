@@ -20,6 +20,7 @@ using namespace std;
 #define high_threshold 0.05
 
 double conc, tx_conc, diameter_cell = 5, deltaamp;
+int Tx_number = 2;
 
 // #### GAP JUNCTIONS PROBABILITIES FOR ASTROCYTES #### //
 double phl[50] = {3.33333333333e-01,9.51756626745e-02,2.71812917035e-02,7.76661124715e-03,2.22288659849e-03,6.39921679991e-04,1.87410416804e-04,5.81750667195e-05,2.17596143238e-05,1.1436923158e-05,7.88454209682e-06,7.43738619183e-06,7.37970057786e-06,7.29603316347e-06,7.27478942971e-06,7.26006289992e-06,7.26084787208e-06,7.26080132601e-06,7.26061054996e-06,7.26081361742e-06,7.26079620991e-06,7.26072365567e-06,7.26058079345e-06,7.26074725419e-06,7.26087576894e-06,7.26073008288e-06,7.26061194028e-06,7.26074336727e-06,7.26101528686e-06,7.26081974085e-06,7.26091667847e-06,7.26058059059e-06,7.26084014577e-06,7.2610063969e-06,7.26069065682e-06,7.26083092741e-06,7.26076153595e-06,7.26071756287e-06,7.26092535023e-06,7.26076421324e-06,7.26060026219e-06,7.26075209967e-06,7.26093367537e-06,7.26073986493e-06,7.26039032094e-06,7.26091299989e-06,7.26077756319e-06,7.26071491915e-06,7.2607710224e-06,7.26082337127e-06};
@@ -114,6 +115,7 @@ public:
 
 		// Modulation and Demodulation
 		double C_variation = SCALE*0; parameters["C_variation"] = C_variation;
+		double tx_rx_reactions = 0; parameters["tx_rx_reactions"] = tx_rx_reactions;
 	}
 
 	void setId(int ID) {
@@ -128,10 +130,16 @@ public:
 	Cell tecido[DIM_Y][DIM_X][DIM_Z];
 	list<int> *connect;
 	vector<int> rx_id;
+	map <string,vector<double>> tx_concentration;
 
 	Network() {
 		NC = DIM_X * DIM_Y * DIM_Z;
 		connect = new list<int>[NC];
+
+		//SETTING VALUES
+		vector<double> tx1; tx_concentration["tx1"] = tx1;
+		vector<double> tx2; tx_concentration["tx2"] = tx2;
+
 
 		int id_cont = 0;
 
@@ -367,35 +375,70 @@ public:
 		return connect[0].size();
 	}
 
-	// Modulation and demodulation
-	int mod_demod(int x, int y, int z){
+	// CSK Modulation
+	int modulation(int x, int y, int z){
 
-		if (tecido[y][x][z].parameters["C_variation"]>=high_threshold){
+		if (tecido[y][x][z].parameters["C_variation"] >= high_threshold){
 			return 1;
-		}else if (tecido[y][x][z].parameters["C_variation"]>=low_threshold && tecido[y][x][z].parameters["C_variation"]<high_threshold){
+		}else if (tecido[y][x][z].parameters["C_variation"] >= low_threshold && tecido[y][x][z].parameters["C_variation"] < high_threshold){
 			return 0;
-		}else{
-			return -1;
 		}
-	}
-	int mod_demod(int id){
-		int x = id % DIM_X;
-		int y = (id / DIM_X) % DIM_Y;
-		int z = id / (DIM_X * DIM_Y);
-
-		if (tecido[y][x][z].parameters["C_variation"]>=high_threshold){
-			return 1;
-		}else if (tecido[y][x][z].parameters["C_variation"]>=low_threshold && tecido[y][x][z].parameters["C_variation"]<high_threshold){
-			return 0;
-		}else{
-			return -1;
-		}
+		return 0;
 	}
 
-	double conditional_accumulate(vector<int>::iterator first, vector<int>::iterator last, int value){
+	int modulation(double c){
+
+		if (c >= high_threshold){
+			return 1;
+		}else if (c >= low_threshold && c < high_threshold){
+			return 0;
+		}
+		return 0;
+	}
+
+	// Demodulation
+	int** demodulation(int Tx1_id, int Tx2_id, double total_reactions){
+
+		double Tx_p[Tx_number] = {get(Tx1_id, "tx_rx_reactions")/total_reactions, get(Tx2_id, "tx_rx_reactions")/total_reactions};
+		int** Rx_states = new int*[rx_id.size()];
+		int tx_size = tx_concentration["tx1"].size();
+		double rx_reactions, CIR[rx_id.size()][Tx_number][tx_size]; // Channel Impulse Response
+		string tx_string;
+		random_device rd;
+    	mt19937 gen(rd());
+
+		for (int i = 0; i < rx_id.size(); i++){
+			rx_reactions = get(rx_id[i], "tx_rx_reactions");
+			// cout << rx_reactions/total_reactions << ",";
+			for (int j = 0; j < Tx_number; j++){
+				tx_string = "tx1";
+				if (j > 0) tx_string = "tx2";
+				// cout << "Rx" << i << ", " << tx_string << ": ";
+				// cout << setprecision(5) << Tx_p[j] << ",";
+				// cout << setprecision(5) << rx_reactions / total_reactions * Tx_p[j] << ",";
+				for (int k = 0; k < tx_size; k++){
+					binomial_distribution<int> distribution(static_cast<int>(tx_concentration[tx_string][k] / ALPHA), rx_reactions / total_reactions + Tx_p[j]); //
+					CIR[i][j][k] = ALPHA*distribution(gen);
+					// cout << CIR[i][j][k];
+				}
+				// cout << endl;
+			}
+		}
+		// cout << endl;
+		for (int i = 0; i < rx_id.size(); i++){
+			Rx_states[i] = new int[tx_size];
+			for (int j = 0; j < tx_size; j++){
+				Rx_states[i][j] = modulation(CIR[i][0][j] + CIR[i][1][j]);
+			}
+		}
+		
+		return Rx_states;
+	}
+
+	double conditional_accumulate(int* first, int size, int value){
 		double sum = 0;
-		for (; first != last; first++){
-			if(*first == value) sum += *first;
+		for (int i = 0; i < size; i++){
+			if(*first == value) sum += *(first + i);
 			// cout << "bit: " << *first << endl;
 		}
 		return sum;
@@ -404,7 +447,7 @@ public:
 	void rx_geometry(string rx_geometry, int Rx_number, int destination, int tx_x, int tx_y, int tx_z){
 		if (rx_geometry == "VL"){ // Up to DIM_X
 			for (int i = 0; i < Rx_number; i++){
-				rx_id.push_back(getId(tx_x+destination+i, tx_y+1, tx_z));
+				rx_id.push_back(getId(tx_x+destination+i, tx_y, tx_z)); // Correção do Y para posição tx_y
 			}
 		}else if (rx_geometry == "HL"){ // Up to DIM_Y
 			for (int i = 0; i < Rx_number; i++){
@@ -413,11 +456,11 @@ public:
 		}else if (rx_geometry == "X"){ // Up to five cells
 			for (int i = 0; i < Rx_number; i++){
 				if (i<3){
-					rx_id.push_back(getId(tx_x+destination+i, tx_y+1, tx_z));
+					rx_id.push_back(getId(tx_x+destination+i, tx_y+2, tx_z));
 				}else if (i==3){
-					rx_id.push_back(getId(tx_x+destination+1, tx_y+1, tx_z+1));
+					rx_id.push_back(getId(tx_x+destination+1, tx_y+2, tx_z+1));
 				}else if (i==4){
-					rx_id.push_back(getId(tx_x+destination+1, tx_y+1, tx_z-1));
+					rx_id.push_back(getId(tx_x+destination+1, tx_y+2, tx_z-1));
 				}
 			}
 		}else if (rx_geometry == "D"){ // Just for five cells
@@ -1291,7 +1334,7 @@ void simulation(int destination, double frequency, string topology, double time_
 
 	// SETTING THE VALUES
 	tecido.set(tx_x, tx_y, tx_z, "C", c_pulse*SCALE); // Tx 1
-	tecido.set(tx_x_2, tx_y_2, tx_z_2, "C", c_pulse*SCALE); // Tx 2
+	tecido.set(tx_x_2, tx_y_2, tx_z_2, "C", c_pulse*SCALE); // Tx 2 ---------> If the Tx number changes, Tx states must change ****
 	// tecido.set(tx_x, tx_y, tx_z, "Na_i", 20000*SCALE); // Quais as referências?
 	// tecido.set(tx_x, tx_y, tx_z, "C_o", 20*SCALE); // Quais as referências?
 	// tecido.set(tx_x, tx_y, tx_z, "Na_o", 1000*SCALE); // Quais as referências?
@@ -1316,14 +1359,13 @@ void simulation(int destination, double frequency, string topology, double time_
 	int nConnections = tecido.numberConnections(), num_reactions = 40;
 	cout << "Connections per cell: " << nConnections << endl;
 	vector<double> choice(5);
-	vector<int> connections(nConnections), qtd_reactions(9 + QTD_DIFFUSIONS * (nConnections * 3)), NCX_mode_vector, Rx_states, Tx_states;
+	vector<int> connections(nConnections), qtd_reactions(9 + QTD_DIFFUSIONS * (nConnections * 3)), NCX_mode_vector, Tx1_states, Tx2_states;
 	double simulation_time = 200, current_time = 0, current_time_calcium = 0, current_time_sodium_inter = 0, current_time_NCX = 0;
-	double tau_max = 100000, tau_calcium=0, tau_sodium_inter=0, tau_NCX=0, E_signal = 0, E_noise = 0, c_in=0, c_out=0, current_time_mod_demod = 0;
-	double c_variation_tx, c_variation_rx = 0;
-	int reaction, int_time = 0, x_c, y_c, z_c, bit, bit2, bit3;
-	bool diffusion_error = false, tau_flag = false, variation_flag = true;
+	double tau_max = 100000, tau_calcium=0, tau_sodium_inter=0, tau_NCX=0, E_signal = 0, E_noise = 0, c_in=0, c_out=0, current_time_modulation = 0;
+	int reaction, int_time = 0, x_c, y_c, z_c;
+	bool diffusion_error = false, tau_flag = false;
 	vector<int>::iterator first;
-	vector<double> C_tx, C_rx, delay_time;
+	vector<double> C_tx, C_rx;
 
 	while (simulation_time > current_time) {
 		
@@ -1386,8 +1428,8 @@ void simulation(int destination, double frequency, string topology, double time_
 				choice = gillespie.calciumReactions();
 				reaction = choice[0];
 				tau_max = choice[4];
-				current_time_mod_demod += tau_max*1000;
-				// cout << "Current time modulation: " << current_time_mod_demod << endl;
+				current_time_modulation += tau_max*1000;
+				// cout << "Current time modulation: " << current_time_modulation << endl;
 				
 				x_c = choice[1];
 				y_c = choice[2];
@@ -1455,10 +1497,10 @@ void simulation(int destination, double frequency, string topology, double time_
 								// Modulation and Demodulation - Begin
 								if ( (x_c == tx_x && y_c == tx_y && z_c == tx_z) || (x_c == tx_x_2 && y_c == tx_y_2 && z_c == tx_z_2) ){
 									tecido.accumulate(x_c, y_c, z_c, "C_variation", ALPHA);
+									tecido.accumulate(x_c, y_c, z_c, "tx_rx_reactions", 1);
 								}
-								first = tecido.rx_id.begin();
-								for (; first != tecido.rx_id.end(); first++){
-									if (connections[conn] == *first) tecido.accumulate(*first, "C_variation", ALPHA);
+								for (first = tecido.rx_id.begin(); first != tecido.rx_id.end(); first++){
+									if (connections[conn] == *first) tecido.accumulate(*first, "tx_rx_reactions", 1);
 								}
 								// Modulation and Demodulation - End
 
@@ -1473,62 +1515,29 @@ void simulation(int destination, double frequency, string topology, double time_
 						// /* DIFFUSION ERROR => NO INCREMENT TIME */
 				if (diffusion_error){
 					current_time -= (tau_max * 1000);
-					current_time_mod_demod -= (tau_max * 1000);
+					current_time_modulation -= (tau_max * 1000);
+					qtd_reactions[reaction - 1]--;
 				}
 				// if (reaction<9) E_signal = E_signal + pow(0.1,2);
 
 				// current_time_calcium += tau_calcium;					
 			// }
 			
-			// Modulation and Demodulation - Begin
-			if (current_time_mod_demod >= time_slot){
-				
-				// *****Delay calculation
-				if (variation_flag){
-					c_variation_tx = tecido.get(tx_x, tx_y, tx_z, "C_variation") + tecido.get(tx_x_2, tx_y_2, tx_z_2, "C_variation");
-					variation_flag = false;
-				}
-				first = tecido.rx_id.begin();
-				for (; first != tecido.rx_id.end(); first++) c_variation_rx += tecido.get(*first, "C_variation");
-				
-				cout << "C_variation_tx: " << tecido.get(tx_x, tx_y, tx_z, "C_variation") << endl;
-				cout << "C_variation_rx: " << c_variation_rx << endl;
-				if (abs(c_variation_tx - c_variation_rx) <= c_variation_tx/2){
-					delay_time.push_back(current_time);
-					variation_flag = true;
-					c_variation_rx = 0;
-				}
+			// Modulation - Begin
+			if (current_time_modulation >= time_slot){
 
 				// Transmitter
-				bit = tecido.mod_demod(tx_x, tx_y, tx_z); // Tx1
-				bit2 = tecido.mod_demod(tx_x_2, tx_y_2, tx_z_2); // Tx2
-				if (bit == 1 || bit2 == 1){
-					Tx_states.push_back(1);
-				}else{
-					Tx_states.push_back(bit);
-				}
-				// cout << "Tx Bit: " << bit << endl;
+				Tx1_states.push_back(tecido.modulation(tx_x, tx_y, tx_z)); // Tx1
+				Tx2_states.push_back(tecido.modulation(tx_x_2, tx_y_2, tx_z_2)); // Tx2
+				
+				tecido.tx_concentration["tx1"].push_back(tecido.get(tx_x, tx_y, tx_z, "C_variation"));
+				tecido.tx_concentration["tx2"].push_back(tecido.get(tx_x_2, tx_y_2, tx_z_2, "C_variation"));
 				tecido.set(tx_x, tx_y, tx_z, "C_variation", 0);
 				tecido.set(tx_x_2, tx_y_2, tx_z_2, "C_variation", 0);
 
-				// Receiver
-				bit2 = 0;
-				bit3 = 0;
-				first = tecido.rx_id.begin();
-				for (; first != tecido.rx_id.end(); first++){ // Rx
-					bit = tecido.mod_demod(*first);
-					if (bit == 1) bit2++;
-					else if (bit == 0) bit3++;
-					// cout << "Rx Bit: " << bit << endl;
-					tecido.set(*first, "C_variation", 0);
-				}
-				if (bit2 != 0) Rx_states.push_back(1);
-				else if (bit3 > trunc(Rx_number/2)) Rx_states.push_back(0);
-				else Rx_states.push_back(-1);
-
-				current_time_mod_demod = 0;
+				current_time_modulation = 0;
 			}
-			// Modulation and Demodulation - End
+			// Modulation - End
 
 			// Saving concentration signal into csv file 
 			// if (x_c != tx_x && y_c != tx_y && z_c != tx_z) {
@@ -1600,10 +1609,8 @@ void simulation(int destination, double frequency, string topology, double time_
 
 			/* STORAGE OF CALCIUM CONCENTRATION */
 			C_tx.push_back(tecido.get(tx_x,tx_y,tx_z, "C")+tecido.get(tx_x_2,tx_y_2,tx_z_2, "C"));
-			
 			c_out = 0;
-			first = tecido.rx_id.begin();
-			for (; first != tecido.rx_id.end(); first++) c_out = c_out + tecido.get(*first, "C");
+			for (first = tecido.rx_id.begin(); first != tecido.rx_id.end(); first++) c_out = c_out + tecido.get(*first, "C");
 			C_rx.push_back(c_out);
 
 			//  || current_time_sodium_inter<tau_max
@@ -1612,7 +1619,26 @@ void simulation(int destination, double frequency, string topology, double time_
 	}
 	// cdatafile.close();
 
-	/* ### CALCULATING GAIN ### */
+	/* ### DEMODULATION - BEGIN ### */
+
+	int Tx1_id = tecido.getId(tx_x,tx_y,tx_z), Tx2_id = tecido.getId(tx_x_2,tx_y_2,tx_z_2);
+	double total_reactions = accumulate(qtd_reactions.begin(), qtd_reactions.end(), 0.0);//+9
+	// cout << total_reactions << endl;
+	int** Rx_states = tecido.demodulation(Tx1_id, Tx2_id, total_reactions);
+
+	// for (int i = 0; i < Rx_number; i++)
+	// {
+	// 	cout << "Rx" << i << ": ";
+	// 	for (int k = 0; k < Tx1_states.size(); k++)
+	// 	{
+	// 		cout << Rx_states[i][k];
+	// 	}
+	// 	cout << endl;
+	// }
+
+	/* ### DEMODULATION - END ### */
+
+	/* ### CALCULATING GAIN - BEGIN ### */
 
 	double acc_c_tx = accumulate(C_tx.begin(), C_tx.end(), 0.0);
 	double acc_c_rx = accumulate(C_rx.begin(), C_rx.end(), 0.0);
@@ -1622,67 +1648,71 @@ void simulation(int destination, double frequency, string topology, double time_
 	// double calc_SNR = 10 * log10(E_signal/E_noise);
 	double calc_gain = 10 * log10((acc_c_rx / (Rx_number*C_rx.size())) / ((acc_c_tx) / (2*C_tx.size())));
 
-	/* ### END GAIN ### */
+	/* ### CALCULATING GAIN - END ### */
 
-	/* ### CALCULATING MEAN DELAY - BEGIN ### */
+	/* ### CALCULATING MIMO CHANNEL CAPACITY AND BER - BEGIN ### */
 
-	double delay = 0;
-	vector<double> mean_delay;
-	adjacent_difference(delay_time.begin(), delay_time.end(), mean_delay.begin());
+	int Tx_states[Tx_number][Tx1_states.size()], bit_number = 2, time_slots_number = destination;
+	double var, mean_channel_capacity, mean_BER;
+	vector<double> channel_capacity, BER;
 
-	vector<double>::iterator first_delay = mean_delay.begin();
-	for (; first_delay != mean_delay.end(); first_delay++){
-		cout << "Delay: " << *first_delay << endl;
+	for (int j = 0; j < Tx1_states.size(); j++){
+		Tx_states[0][j] = Tx1_states[j];
+		Tx_states[1][j] = Tx2_states[j];
 	}
-	if (mean_delay.size() != 0) delay = accumulate(mean_delay.begin(), mean_delay.end(), 0.0)/mean_delay.size();
-	// cout << "Delay: " << delay << endl;
-
-	/* ### CALCULATING MEAN DELAY - END ### */
-
-	/* ### CALCULATING MIMO CHANEL CAPACITY AND BER - BEGIN ### */
-
-	int bit_number = 2, time_slots_number = trunc(delay/time_slot);
-	double channel_capacity = 0, px[bit_number] = {}, py[bit_number] = {}, pyx_joint[bit_number][bit_number] = {}, BER = 0;
-	vector<double> I_xy;
-	cout << "Time_slot_number: " << time_slots_number << endl;
-	px[1] = tecido.conditional_accumulate(Tx_states.begin(), Tx_states.end(), 1)/Tx_states.size();
-	px[0] = 1 - px[1];
 	
-	py[1] = tecido.conditional_accumulate(Rx_states.begin(), Rx_states.end(), 1)/Rx_states.size();
-	if (py[1] == 0) py[1] = 0.00000000001;
-	py[0] = 1 - py[1];
+	for (int k = 0; k < Tx_number; k++) //Tx_number
+	{	
+		for (int m = 0; m < Rx_number; m++)
+		{
+			double px[bit_number] = {}, py[bit_number] = {}, pyx_joint[bit_number][bit_number] = {}, BER_counter = 0;
+			vector<double> I_xy;
+			// cout << "Time_slot_number: " << time_slots_number << endl;
+			
+			px[1] = tecido.conditional_accumulate(Tx_states[k], Tx1_states.size(), 1)/Tx1_states.size();
+			px[0] = 1 - px[1];
+			
+			py[1] = tecido.conditional_accumulate(Rx_states[m], Tx1_states.size(), 1)/Tx1_states.size();
+			if (py[1] == 0) py[1] = 0.00000000001;
+			py[0] = 1 - py[1];
 
-	for (int i = 0; i < Tx_states.size()-time_slots_number; i++){
-		// cout << Rx_states[i+time_slots_number] << endl;
+			for (int i = 0; i < Tx1_states.size()-time_slots_number; i++){
+				// cout << Rx_states[m][i+time_slots_number] << endl;
 
-		if (Rx_states[i+time_slots_number] != -1 && Tx_states[i] != -1) pyx_joint[Rx_states[i+time_slots_number]][Tx_states[i]]++;
-		if (Rx_states[i+time_slots_number] != Tx_states[i]) BER++;
-	}
-	pyx_joint[0][0] = Tx_states.size()-pyx_joint[1][0];
-	pyx_joint[0][1] = Tx_states.size()-pyx_joint[1][1];
-	BER = BER/Tx_states.size();
+				if (Rx_states[m][i+time_slots_number] != -1 && Tx_states[k][i] != -1) pyx_joint[Rx_states[m][i+time_slots_number]][Tx_states[k][i]]++;
+				if (Rx_states[m][i+time_slots_number] != Tx_states[k][i]) BER_counter++;
+			}
+			pyx_joint[0][0] = Tx1_states.size()-pyx_joint[1][0];
+			pyx_joint[0][1] = Tx1_states.size()-pyx_joint[1][1];
+			BER.push_back(BER_counter/Tx1_states.size());
 
-	for (int y = 0; y < bit_number; y++){ // Number of y1 given x0; Number of y1 given x1; Number of y0 given x0; Number of y0 given x1
-		for (int x = 0; x < bit_number; x++){
-			pyx_joint[y][x] = pyx_joint[y][x]/Tx_states.size();
-			// cout << "Pyx_joint: " << pyx_joint[y][x] << endl;
-			// cout << "Py: " << py[y] << endl;
-			if (pyx_joint[y][x] == 0) pyx_joint[y][x] = 0.00000000001;
+			for (int y = 0; y < bit_number; y++){ // Number of y1 given x0; Number of y1 given x1; Number of y0 given x0; Number of y0 given x1
+				for (int x = 0; x < bit_number; x++){
+					pyx_joint[y][x] = pyx_joint[y][x]/Tx1_states.size();
+					// cout << "Pyx_joint: " << pyx_joint[y][x] << endl;
+					// cout << "Py: " << py[y] << endl;
+					if (pyx_joint[y][x] == 0) pyx_joint[y][x] = 0.00000000001;
 
-			I_xy.push_back(px[x] * pyx_joint[y][x] * log2(pyx_joint[y][x]/py[y])); // Mutual Information
+					I_xy.push_back(px[x] * pyx_joint[y][x] * log2(pyx_joint[y][x]/py[y])); // Mutual Information
+				}
+			}
+
+			// first = I_xy.begin();
+			// for (; first != I_xy.end(); first++){
+			// 	cout << "I_xy: " << *first << endl;
+			// }
+
+			channel_capacity.push_back(*max_element(I_xy.begin(), I_xy.end()));
+
 		}
 	}
+	
+	mean_channel_capacity = accumulate(channel_capacity.begin(), channel_capacity.end(), 0.0)/channel_capacity.size();
+	mean_BER = accumulate(BER.begin(), BER.end(), 0.0)/BER.size();
 
-	// first = I_xy.begin();
-	// for (; first != I_xy.end(); first++){
-	// 	cout << "I_xy: " << *first << endl;
-	// }
+	/* ### CALCULATING MIMO CHANNEL CAPACITY AND BER - END ### */
 
-	channel_capacity = *max_element(I_xy.begin(), I_xy.end());
-
-	/* ### CALCULATING MIMO CHANEL CAPACITY - END ### */
-
-	file_results << topology << "," << frequency << "," << destination << "," << time_slot << "," << calc_gain << "," << channel_capacity << "," << BER << "," << delay << ",\n";
+	file_results << topology << "," << frequency << "," << destination << "," << time_slot << "," << calc_gain << "," << mean_channel_capacity << "," << mean_BER << ",\n";
 
 };
 
@@ -1693,24 +1723,24 @@ int main(){
 	vector<double> time_slot{0.5}; //{0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1}; s
 	vector<double> frequencies{0.6}; //{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1};[Hz]
 	string topology = "RD";
-	string rx_geometry = "D"; // HL = Horizontal Line; VL = Vertical Line; X = Cross (<= 5 cells); D = Diamond (== 5 cells)
-	// int destination = 1;
+	string rx_geometry = "HL"; // HL = Horizontal Line; VL = Vertical Line; X = Cross (<= 5 cells); D = Diamond (== 5 cells)
+	int destination = 1;
 
 	ofstream file_results;
 	file_results.open("results/results.csv");
-	file_results << "Topology,Freq (Hz),Range,Time Slot (s),Gain (dB),Channel Capacity (bits),BER,Delay (s),\n"; 
+	file_results << "Topology,Freq (Hz),Range,Time Slot (s),Gain (dB),Channel Capacity (bits),BER,\n"; 
 
 	for (int j = 0; j < simulation_number; j++)
 	{
 		for (double frequency : frequencies)
 		{
-			for (int destination = 1; destination < 7; destination++)
-			{
+			// for (int destination = 1; destination < 7; destination++)
+			// {
 				for (double time:time_slot)
 				{
 					simulation(destination, frequency, topology, time, file_results, Rx_number, rx_geometry);
 				}
-			}
+			// }
 		}
 	}
 	file_results.close();
