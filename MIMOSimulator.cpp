@@ -397,12 +397,13 @@ public:
 	}
 
 	// Demodulation
-	int*** demodulation(int Tx1_id, int Tx2_id, double total_reactions, bool ISI){
+	int*** demodulation(int Tx1_id, int Tx2_id, double total_reactions, double*** ISI){
 
 		double Tx_p[Tx_number] = {get(Tx1_id, "tx_rx_reactions")/total_reactions, get(Tx2_id, "tx_rx_reactions")/total_reactions};
 		int*** Rx_states = new int**[rx_id.size()];
 		int tx_size = tx_concentration["tx1"].size();
 		double rx_reactions, CIR[rx_id.size()][Tx_number][tx_size]; // Channel Impulse Response
+		double CIR_ISI[rx_id.size()][Tx_number][tx_size] = {}; // Intersymbol Interference
 		string tx_string;
 		random_device rd;
     	mt19937 gen(rd());
@@ -416,19 +417,11 @@ public:
 				// cout << "Rx" << i << ", " << tx_string << ": ";
 				// cout << setprecision(5) << Tx_p[j] << ",";
 				// cout << setprecision(5) << rx_reactions / total_reactions * Tx_p[j] << ",";
-				if (!ISI){
-					for (int k = 0; k < tx_size; k++){
-						gamma_distribution<> distribution(static_cast<int>(tx_concentration[tx_string][k] / ALPHA), rx_reactions / total_reactions + Tx_p[j]); //
-						CIR[i][j][k] = ALPHA*distribution(gen);
-						// cout << CIR[i][j][k];
-					}
-				}else{
-					CIR[i][j][0] = 0;
-					for (int k = 1; k < tx_size; k++){
-						gamma_distribution<> distribution(static_cast<int>(tx_concentration[tx_string][k-1] / ALPHA), rx_reactions / total_reactions + Tx_p[j]); //
-						CIR[i][j][k] = ALPHA*distribution(gen);
-						// cout << CIR[i][j][k];
-					}
+				for (int k = 0; k < tx_size; k++){
+					gamma_distribution<> distribution(static_cast<int>(tx_concentration[tx_string][k] / ALPHA), rx_reactions / total_reactions + Tx_p[j]); //
+					CIR[i][j][k] = ALPHA*distribution(gen);
+					// cout << CIR[i][j][k];
+					if(k != tx_size-1) CIR_ISI[i][j][k+1] = CIR[i][j][k];
 				}
 				// cout << endl;
 			}
@@ -440,15 +433,10 @@ public:
 				Rx_states[i][j] = new int[tx_size];
 				tx_string = "tx1";
 				if (j > 0) tx_string = "tx2";
-				if (!ISI){
-					for (int k = 0; k < tx_size; k++){
-						Rx_states[i][j][k] = modulation(CIR[i][0][k] + CIR[i][1][k])*modulation(tx_concentration[tx_string][k]);
-					}
-				}else{
-					Rx_states[i][j][0] = 0;
-					for (int k = 1; k < tx_size; k++){
-						Rx_states[i][j][k] = (CIR[i][0][k] + CIR[i][1][k])*tx_concentration[tx_string][k-1];
-					}
+				ISI[i][j][0] = 0;
+				for (int k = 0; k < tx_size; k++){
+					Rx_states[i][j][k] = modulation(CIR[i][0][k] + CIR[i][1][k])*modulation(tx_concentration[tx_string][k]);
+					if(k != tx_size-1) ISI[i][j][k+1] = (CIR_ISI[i][0][k] + CIR_ISI[i][1][k])*tx_concentration[tx_string][k];
 				}
 			}
 		}
@@ -1329,7 +1317,7 @@ public:
 	}
 };
 
-void simulation(int destination, double frequency, string topology, double time_slot, ofstream& file_results, int Rx_number, string rx_geometry) {
+void simulation(int destination, double frequency, string topology, double time_slot, ofstream& file_results, ofstream& canais, ofstream& cdatafile, int Rx_number, string rx_geometry) {
 	Network tecido;
 	int tx_x = trunc(DIM_X / 15), tx_x_2 = trunc(DIM_X / 15); // Rx depends on that position
 	int tx_y = trunc(DIM_Y / 5), tx_y_2 = trunc(3 * DIM_Y / 5); // Rx depends on that position
@@ -1368,11 +1356,6 @@ void simulation(int destination, double frequency, string topology, double time_
 	// exportfile.open("temp/data.txt");
 	// tecido.writeFileHeader(exportfile);
 	// tecido.printTissuef(exportfile, 0); // Writes the tissue's initial state to the file
-	
-	// Opening file for sotring concentration data at time simulation
-	ofstream cdatafile;
-	cdatafile.open("temp/ISI_data.csv");
-	cdatafile << "channel,ISI,\n";
 
 	// Inicializando o Algoritmo de Gillespie
 	Gillespie gillespie(&tecido);
@@ -1644,8 +1627,14 @@ void simulation(int destination, double frequency, string topology, double time_
 	int Tx1_id = tecido.getId(tx_x,tx_y,tx_z), Tx2_id = tecido.getId(tx_x_2,tx_y_2,tx_z_2);
 	double total_reactions = accumulate(qtd_reactions.begin(), qtd_reactions.end(), 0.0);//+9
 	// cout << total_reactions << endl;
-	int*** Rx_states = tecido.demodulation(Tx1_id, Tx2_id, total_reactions, false);
-	int*** ISI = tecido.demodulation(Tx1_id, Tx2_id, total_reactions, true);
+	double*** ISI = new double** [Rx_number];
+	for (int i = 0; i < Rx_number; i++){
+		ISI[i] = new double* [Tx_number];
+		for (int j = 0; j < Tx_number; j++){
+			ISI[i][j] = new double [Tx1_states.size()];
+		}
+	}
+	int*** Rx_states = tecido.demodulation(Tx1_id, Tx2_id, total_reactions, ISI);
 
 	for (int i = 0; i < Rx_number; i++)
 	{
@@ -1655,12 +1644,11 @@ void simulation(int destination, double frequency, string topology, double time_
 			for (int k = 0; k < Tx1_states.size(); k++)
 			{
 				cout << Rx_states[i][j][k];
-				cdatafile << "Rx"+to_string(i)+"Tx"+to_string(j) << "," << ISI[i][j][k] << ",\n";
+				cdatafile << rx_geometry << "," << frequency << "," << destination << "," << time_slot << "," << "Rx"+to_string(i)+"Tx"+to_string(j) << "," << ISI[i][j][k] << ",\n";
 			}
 			cout << endl;
 		}
 	}
-	cdatafile.close();
 
 	/* ### DEMODULATION AND ISI - END ### */
 
@@ -1678,18 +1666,17 @@ void simulation(int destination, double frequency, string topology, double time_
 
 	/* ### CALCULATING MIMO CHANNEL CAPACITY AND BER - BEGIN ### */
 
-	ofstream canais;
-	canais.open("temp/canais.csv");
-	canais << "Channel,Channel Capacity,BER,\n"; 
-
 	int Tx_states[Tx_number][Tx1_states.size()], bit_number = 2, time_slots_number = destination, contc=0, contb=0;
 	double var, mean_channel_capacity, mean_BER;
 	vector<double> channel_capacity, BER;
 
+	cout << "Rx: ";
 	for (int j = 0; j < Tx1_states.size(); j++){
+		cout << Tx1_states[j]; 
 		Tx_states[0][j] = Tx1_states[j];
 		Tx_states[1][j] = Tx2_states[j];
 	}
+	cout << endl;
 		
 	for (int m = 0; m < Rx_number; m++)
 	{
@@ -1734,18 +1721,17 @@ void simulation(int destination, double frequency, string topology, double time_
 
 			channel_capacity.push_back(*max_element(I_xy.begin(), I_xy.end()));
 
-			canais << "Rx"+to_string(m)+"Tx"+to_string(k) << "," << channel_capacity[contc++] << "," << BER[contb++] << ",\n";
+			canais << rx_geometry << "," << frequency << "," << destination << "," << time_slot << "," << "Rx"+to_string(m)+"Tx"+to_string(k) << "," << channel_capacity[contc++] << "," << BER[contb++] << ",\n";
 
 		}
 	}
-	canais.close();
 
 	mean_channel_capacity = accumulate(channel_capacity.begin(), channel_capacity.end(), 0.0)/channel_capacity.size();
 	mean_BER = accumulate(BER.begin(), BER.end(), 0.0)/BER.size();
 
 	/* ### CALCULATING MIMO CHANNEL CAPACITY AND BER - END ### */
 
-	file_results << topology << "," << frequency << "," << destination << "," << time_slot << "," << calc_gain << "," << mean_channel_capacity << "," << mean_BER << ",\n";
+	file_results << rx_geometry << "," << frequency << "," << destination << "," << time_slot << "," << calc_gain << "," << mean_channel_capacity << "," << mean_BER << ",\n";
 
 };
 
@@ -1753,30 +1739,43 @@ void simulation(int destination, double frequency, string topology, double time_
 int main(){
 
 	int simulation_number = 1, Rx_number = 5; // 0 < Rx_number < x && Rx_number <= y
-	vector<double> time_slot{0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1}; //s
-	vector<double> frequencies{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1}; //[Hz]
+	vector<double> time_slot{0.5}; //{0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1}; //s
+	vector<double> frequencies{0.5}; //{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1}; //[Hz]
 	string topology = "RD";
 	string rx_geometry = "HL"; // HL = Horizontal Line; VL = Vertical Line; X = Cross (<= 5 cells); D = Diamond (== 5 cells)
-	// int destination = 1;
+	int destination = 1;
 
+	// Mean results
 	ofstream file_results;
-	file_results.open("results/results.csv");
-	file_results << "Topology,Freq (Hz),Range,Time Slot (s),Gain (dB),Channel Capacity (bits),BER,\n"; 
+	file_results.open("results/results-"+rx_geometry+".csv");
+	file_results << "Geometry,Freq (Hz),Range,Time Slot (s),Gain (dB),Channel Capacity (bits),BER,\n"; 
+
+	// Metrics by channel
+	ofstream canais;
+	canais.open("temp/canais-"+rx_geometry+".csv");
+	canais << "Geometry,Freq (Hz),Range,Time Slot (s),Channel,Channel Capacity,BER,\n"; 
+
+	// Opening file for sotring concentration data at time simulation
+	ofstream cdatafile;
+	cdatafile.open("temp/ISI_data-"+rx_geometry+".csv");
+	cdatafile << "Geometry,Freq (Hz),Range,Time Slot (s),channel,ISI,\n";
 
 	for (int j = 0; j < simulation_number; j++)
 	{
 		for (double frequency : frequencies)
 		{
-			for (int destination = 1; destination < 7; destination++)
-			{
+			// for (int destination = 1; destination < 7; destination++)
+			// {
 				for (double time:time_slot)
 				{
-					simulation(destination, frequency, topology, time, file_results, Rx_number, rx_geometry);
+					simulation(destination, frequency, topology, time, file_results, canais, cdatafile, Rx_number, rx_geometry);
 				}
-			}
+			// }
 		}
 	}
 	file_results.close();
+	canais.close();
+	cdatafile.close();
 
 	return 0;
 };
