@@ -17,7 +17,7 @@ using namespace std;
 #define F 96485.3329 // [s.A/mol] Faraday's constant
 #define c_pulse 0.5
 #define low_threshold 0.0
-#define high_threshold 0.05
+#define high_threshold 0.02
 
 double conc, tx_conc, diameter_cell = 5, deltaamp;
 int Tx_number = 2;
@@ -397,10 +397,11 @@ public:
 	}
 
 	// Demodulation
-	int*** demodulation(int Tx1_id, int Tx2_id, double total_reactions, double*** ISI){
+
+	int** demodulation(int Tx1_id, int Tx2_id, double total_reactions, double** ISI){
 
 		double Tx_p[Tx_number] = {get(Tx1_id, "tx_rx_reactions")/total_reactions, get(Tx2_id, "tx_rx_reactions")/total_reactions};
-		int*** Rx_states = new int**[rx_id.size()];
+		int** Rx_states = new int*[rx_id.size()];
 		int tx_size = tx_concentration["tx1"].size();
 		double rx_reactions, CIR[rx_id.size()][Tx_number][tx_size]; // Channel Impulse Response
 		double CIR_ISI[rx_id.size()][Tx_number][tx_size] = {}; // Intersymbol Interference
@@ -414,35 +415,77 @@ public:
 			for (int j = 0; j < Tx_number; j++){
 				tx_string = "tx1";
 				if (j > 0) tx_string = "tx2";
-				// cout << "Rx" << i << ", " << tx_string << ": ";
+				cout << "Rx" << i << ", " << tx_string << ": ";
 				// cout << setprecision(5) << Tx_p[j] << ",";
 				// cout << setprecision(5) << rx_reactions / total_reactions * Tx_p[j] << ",";
 				for (int k = 0; k < tx_size; k++){
 					gamma_distribution<> distribution(static_cast<int>(tx_concentration[tx_string][k] / ALPHA), rx_reactions / total_reactions + Tx_p[j]); //
-					CIR[i][j][k] = ALPHA*distribution(gen);
-					// cout << CIR[i][j][k];
+					CIR[i][j][k] = tx_concentration[tx_string][k]*distribution(gen);
+					cout << CIR[i][j][k];
 					if(k != tx_size-1) CIR_ISI[i][j][k+1] = CIR[i][j][k];
 				}
-				// cout << endl;
+				cout << endl;
 			}
 		}
 		// cout << endl;
 		for (int i = 0; i < rx_id.size(); i++){
-			Rx_states[i] = new int*[Tx_number];
-			for (int j = 0; j < Tx_number; j++){
-				Rx_states[i][j] = new int[tx_size];
-				tx_string = "tx1";
-				if (j > 0) tx_string = "tx2";
-				ISI[i][j][0] = 0;
-				for (int k = 0; k < tx_size; k++){
-					Rx_states[i][j][k] = modulation(CIR[i][0][k] + CIR[i][1][k])*modulation(tx_concentration[tx_string][k]);
-					if(k != tx_size-1) ISI[i][j][k+1] = (CIR_ISI[i][0][k] + CIR_ISI[i][1][k])*tx_concentration[tx_string][k];
-				}
+			Rx_states[i] = new int[tx_size];
+			ISI[i][0] = 0;
+			for (int k = 0; k < tx_size; k++){
+				Rx_states[i][k] = modulation(CIR[i][0][k] + CIR[i][1][k]);
+				if(k != tx_size-1) ISI[i][k+1] = CIR_ISI[i][0][k] + CIR_ISI[i][1][k];
 			}
 		}
 		
 		return Rx_states;
 	}
+
+	// int*** demodulation(int Tx1_id, int Tx2_id, double total_reactions, double*** ISI){
+
+	// 	double Tx_p[Tx_number] = {get(Tx1_id, "tx_rx_reactions")/total_reactions, get(Tx2_id, "tx_rx_reactions")/total_reactions};
+	// 	int*** Rx_states = new int**[rx_id.size()];
+	// 	int tx_size = tx_concentration["tx1"].size();
+	// 	double rx_reactions, CIR[rx_id.size()][Tx_number][tx_size]; // Channel Impulse Response
+	// 	double CIR_ISI[rx_id.size()][Tx_number][tx_size] = {}; // Intersymbol Interference
+	// 	string tx_string;
+	// 	random_device rd;
+    // 	mt19937 gen(rd());
+
+	// 	for (int i = 0; i < rx_id.size(); i++){
+	// 		rx_reactions = get(rx_id[i], "tx_rx_reactions");
+	// 		// cout << rx_reactions/total_reactions << ",";
+	// 		for (int j = 0; j < Tx_number; j++){
+	// 			tx_string = "tx1";
+	// 			if (j > 0) tx_string = "tx2";
+	// 			cout << "Rx" << i << ", " << tx_string << ": ";
+	// 			// cout << setprecision(5) << Tx_p[j] << ",";
+	// 			// cout << setprecision(5) << rx_reactions / total_reactions * Tx_p[j] << ",";
+	// 			for (int k = 0; k < tx_size; k++){
+	// 				gamma_distribution<> distribution(static_cast<int>(tx_concentration[tx_string][k] / ALPHA), rx_reactions / total_reactions + Tx_p[j]); //
+	// 				CIR[i][j][k] = ALPHA*distribution(gen);
+	// 				cout << CIR[i][j][k];
+	// 				if(k != tx_size-1) CIR_ISI[i][j][k+1] = CIR[i][j][k];
+	// 			}
+	// 			cout << endl;
+	// 		}
+	// 	}
+	// 	// cout << endl;
+	// 	for (int i = 0; i < rx_id.size(); i++){
+	// 		Rx_states[i] = new int*[Tx_number];
+	// 		for (int j = 0; j < Tx_number; j++){
+	// 			Rx_states[i][j] = new int[tx_size];
+	// 			tx_string = "tx1";
+	// 			if (j > 0) tx_string = "tx2";
+	// 			ISI[i][j][0] = 0;
+	// 			for (int k = 0; k < tx_size; k++){
+	// 				Rx_states[i][j][k] = modulation(CIR[i][0][k] + CIR[i][1][k])*modulation(tx_concentration[tx_string][k]);
+	// 				if(k != tx_size-1) ISI[i][j][k+1] = (CIR_ISI[i][0][k] + CIR_ISI[i][1][k])*tx_concentration[tx_string][k];
+	// 			}
+	// 		}
+	// 	}
+		
+	// 	return Rx_states;
+	// }
 
 	double conditional_accumulate(int* first, int size, int value){
 		double sum = 0;
@@ -1439,7 +1482,7 @@ void simulation(int destination, double frequency, string topology, double time_
 				y_c = choice[2];
 				z_c = choice[3];
 
-				//cout << setprecision(5) << "Tau_calcium = " << tau_calcium << endl;
+				// cout << setprecision(5) << "Tau_max = " << tau_max << endl;
 				qtd_reactions[reaction - 1]++;
 
 				if (reaction == 1) {
@@ -1622,36 +1665,6 @@ void simulation(int destination, double frequency, string topology, double time_
 		// } while (current_time_calcium<tau_max || current_time_NCX<tau_max);
 	}
 
-	/* ### DEMODULATION AND ISI - BEGIN ### */
-
-	int Tx1_id = tecido.getId(tx_x,tx_y,tx_z), Tx2_id = tecido.getId(tx_x_2,tx_y_2,tx_z_2);
-	double total_reactions = accumulate(qtd_reactions.begin(), qtd_reactions.end(), 0.0);//+9
-	// cout << total_reactions << endl;
-	double*** ISI = new double** [Rx_number];
-	for (int i = 0; i < Rx_number; i++){
-		ISI[i] = new double* [Tx_number];
-		for (int j = 0; j < Tx_number; j++){
-			ISI[i][j] = new double [Tx1_states.size()];
-		}
-	}
-	int*** Rx_states = tecido.demodulation(Tx1_id, Tx2_id, total_reactions, ISI);
-
-	for (int i = 0; i < Rx_number; i++)
-	{
-		for (int j = 0; j < Tx_number; j++)
-		{
-			cout << "Rx" << i << ", Tx" << j << ": ";
-			for (int k = 0; k < Tx1_states.size(); k++)
-			{
-				cout << Rx_states[i][j][k];
-				cdatafile << rx_geometry << "," << frequency << "," << destination << "," << time_slot << "," << "Rx"+to_string(i)+"Tx"+to_string(j) << "," << ISI[i][j][k] << ",\n";
-			}
-			cout << endl;
-		}
-	}
-
-	/* ### DEMODULATION AND ISI - END ### */
-
 	/* ### CALCULATING GAIN - BEGIN ### */
 
 	double acc_c_tx = accumulate(C_tx.begin(), C_tx.end(), 0.0);
@@ -1664,14 +1677,38 @@ void simulation(int destination, double frequency, string topology, double time_
 
 	/* ### CALCULATING GAIN - END ### */
 
+	/* ### DEMODULATION AND ISI - BEGIN ### */
+
+	int Tx1_id = tecido.getId(tx_x,tx_y,tx_z), Tx2_id = tecido.getId(tx_x_2,tx_y_2,tx_z_2), time_size = Tx1_states.size();
+	double total_reactions = accumulate(qtd_reactions.begin(), qtd_reactions.end(), 0.0);//+9
+	// cout << total_reactions << endl;
+	double** ISI = new double* [Rx_number];
+	for (int i = 0; i < Rx_number; i++){
+		ISI[i] = new double [time_size];
+	}
+	int** Rx_states = tecido.demodulation(Tx1_id, Tx2_id, total_reactions, ISI);
+
+	for (int i = 0; i < Rx_number; i++)
+	{
+		cout << "Rx" << i << ": ";
+		for (int k = 0; k < time_size; k++)
+		{
+			cout << Rx_states[i][k];
+			cdatafile << rx_geometry << "," << frequency << "," << destination << "," << time_slot << "," << "Rx"+to_string(i) << "," << ISI[i][k] << ",\n";
+		}
+		cout << endl;
+	}
+
+	/* ### DEMODULATION AND ISI - END ### */
+
 	/* ### CALCULATING MIMO CHANNEL CAPACITY AND BER - BEGIN ### */
 
-	int Tx_states[Tx_number][Tx1_states.size()], bit_number = 2, time_slots_number = destination, contc=0, contb=0;
+	int Tx_states[Tx_number][time_size], bit_number = 2, time_slots_number = destination, contc=0, contb=0;
 	double var, mean_channel_capacity, mean_BER;
 	vector<double> channel_capacity, BER;
 
-	cout << "Rx: ";
-	for (int j = 0; j < Tx1_states.size(); j++){
+	cout << "Tx: ";
+	for (int j = 0; j < time_size; j++){
 		cout << Tx1_states[j]; 
 		Tx_states[0][j] = Tx1_states[j];
 		Tx_states[1][j] = Tx2_states[j];
@@ -1680,54 +1717,145 @@ void simulation(int destination, double frequency, string topology, double time_
 		
 	for (int m = 0; m < Rx_number; m++)
 	{
-		for (int k = 0; k < Tx_number; k++) //Tx_number
-		{
-			double px[bit_number] = {}, py[bit_number] = {}, pyx_joint[bit_number][bit_number] = {}, BER_counter = 0;
-			vector<double> I_xy;
-			// cout << "Time_slot_number: " << time_slots_number << endl;
-			
-			px[1] = tecido.conditional_accumulate(Tx_states[k], Tx1_states.size(), 1)/Tx1_states.size();
-			px[0] = 1 - px[1];
-			
-			py[1] = tecido.conditional_accumulate(Rx_states[m][k], Tx1_states.size(), 1)/Tx1_states.size();
-			if (py[1] == 0) py[1] = 0.00000000001;
-			py[0] = 1 - py[1];
+		double px[bit_number] = {}, py[bit_number] = {}, pyx_joint[bit_number][bit_number] = {}, BER_counter = 0;
+		vector<double> I_xy;
+		int rx_x = tecido.rx_id[m] % DIM_X;
+		// cout << "Time_slot_number: " << time_slots_number << endl;
+		
+		px[1] = (tecido.conditional_accumulate(Tx_states[0], time_size, 1) + tecido.conditional_accumulate(Tx_states[0], time_size, 1))/(2 * time_size);
+		px[0] = 1 - px[1];
+		
+		py[1] = tecido.conditional_accumulate(Rx_states[m], time_size, 1)/time_size;
+		if (py[1] == 0) py[1] = 0.00000000001;
+		py[0] = 1 - py[1];
 
-			for (int i = 0; i < Tx1_states.size()-time_slots_number; i++){
-				// cout << Rx_states[m][k][i+time_slots_number] << endl;
-
-				if (Rx_states[m][k][i+time_slots_number] != -1 && Tx_states[k][i] != -1) pyx_joint[Rx_states[m][k][i+time_slots_number]][Tx_states[k][i]]++;
-				if (Rx_states[m][k][i+time_slots_number] != Tx_states[k][i]) BER_counter++;
+		for (int i = 0; i < time_size-(time_slots_number+rx_x); i++){
+			// cout << Rx_states[m][k][i+(time_slots_number+rx_x)] << endl;
+			for (int k = 0; k < Tx_number; k++){
+				if (Rx_states[m][i+(time_slots_number+rx_x)] != -1 && Tx_states[k][i] != -1) pyx_joint[Rx_states[m][i+(time_slots_number+rx_x)]][Tx_states[k][i]]++;
 			}
-			pyx_joint[0][0] = Tx1_states.size()-pyx_joint[1][0];
-			pyx_joint[0][1] = Tx1_states.size()-pyx_joint[1][1];
-			BER.push_back(BER_counter/Tx1_states.size());
-
-			for (int y = 0; y < bit_number; y++){ // Number of y1 given x0; Number of y1 given x1; Number of y0 given x0; Number of y0 given x1
-				for (int x = 0; x < bit_number; x++){
-					pyx_joint[y][x] = pyx_joint[y][x]/Tx1_states.size();
-					// cout << "Pyx_joint: " << pyx_joint[y][x] << endl;
-					// cout << "Py: " << py[y] << endl;
-					if (pyx_joint[y][x] == 0) pyx_joint[y][x] = 0.00000000001;
-
-					I_xy.push_back(px[x] * pyx_joint[y][x] * log2(pyx_joint[y][x]/py[y])); // Mutual Information
-				}
-			}
-
-			// first = I_xy.begin();
-			// for (; first != I_xy.end(); first++){
-			// 	cout << "I_xy: " << *first << endl;
-			// }
-
-			channel_capacity.push_back(*max_element(I_xy.begin(), I_xy.end()));
-
-			canais << rx_geometry << "," << frequency << "," << destination << "," << time_slot << "," << "Rx"+to_string(m)+"Tx"+to_string(k) << "," << channel_capacity[contc++] << "," << BER[contb++] << ",\n";
-
+			if (Rx_states[m][i+(time_slots_number+rx_x)] != Tx_states[0][i] && Rx_states[m][i+(time_slots_number+rx_x)] != Tx_states[1][i]) BER_counter++;
 		}
+		pyx_joint[0][0] = time_size-pyx_joint[1][0];
+		pyx_joint[0][1] = time_size-pyx_joint[1][1];
+		BER.push_back(BER_counter/time_size);
+
+		for (int y = 0; y < bit_number; y++){ // Number of y1 given x0; Number of y1 given x1; Number of y0 given x0; Number of y0 given x1
+			for (int x = 0; x < bit_number; x++){
+				pyx_joint[y][x] = pyx_joint[y][x]/time_size;
+				// cout << "Pyx_joint: " << pyx_joint[y][x] << endl;
+				// cout << "Py: " << py[y] << endl;
+				if (pyx_joint[y][x] == 0) pyx_joint[y][x] = 0.00000000001;
+
+				I_xy.push_back(px[x] * pyx_joint[y][x] * log2(pyx_joint[y][x]/py[y])); // Mutual Information
+			}
+		}
+
+		// first = I_xy.begin();
+		// for (; first != I_xy.end(); first++){
+		// 	cout << "I_xy: " << *first << endl;
+		// }
+
+		channel_capacity.push_back(*max_element(I_xy.begin(), I_xy.end()));
+
+		canais << rx_geometry << "," << frequency << "," << destination << "," << time_slot << "," << "Rx"+to_string(m) << "," << channel_capacity[contc++] << "," << BER[contb++] << ",\n";
 	}
 
 	mean_channel_capacity = accumulate(channel_capacity.begin(), channel_capacity.end(), 0.0)/channel_capacity.size();
 	mean_BER = accumulate(BER.begin(), BER.end(), 0.0)/BER.size();
+
+	// int Tx1_id = tecido.getId(tx_x,tx_y,tx_z), Tx2_id = tecido.getId(tx_x_2,tx_y_2,tx_z_2), time_size = Tx1_states.size();
+	// double total_reactions = accumulate(qtd_reactions.begin(), qtd_reactions.end(), 0.0);//+9
+	// // cout << total_reactions << endl;
+	// double*** ISI = new double** [Rx_number];
+	// for (int i = 0; i < Rx_number; i++){
+	// 	ISI[i] = new double* [Tx_number];
+	// 	for (int j = 0; j < Tx_number; j++){
+	// 		ISI[i][j] = new double [time_size];
+	// 	}
+	// }
+	// int*** Rx_states = tecido.demodulation(Tx1_id, Tx2_id, total_reactions, ISI);
+
+	// for (int i = 0; i < Rx_number; i++)
+	// {
+	// 	for (int j = 0; j < Tx_number; j++)
+	// 	{
+	// 		cout << "Rx" << i << ", Tx" << j << ": ";
+	// 		for (int k = 0; k < time_size; k++)
+	// 		{
+	// 			cout << Rx_states[i][j][k];
+	// 			cdatafile << rx_geometry << "," << frequency << "," << destination << "," << time_slot << "," << "Rx"+to_string(i)+"Tx"+to_string(j) << "," << ISI[i][j][k] << ",\n";
+	// 		}
+	// 		cout << endl;
+	// 	}
+	// }
+
+	// /* ### DEMODULATION AND ISI - END ### */
+
+	// /* ### CALCULATING MIMO CHANNEL CAPACITY AND BER - BEGIN ### */
+
+	// int Tx_states[Tx_number][time_size], bit_number = 2, time_slots_number = destination, contc=0, contb=0;
+	// double var, mean_channel_capacity, mean_BER;
+	// vector<double> channel_capacity, BER;
+
+	// cout << "Tx: ";
+	// for (int j = 0; j < time_size; j++){
+	// 	cout << Tx1_states[j]; 
+	// 	Tx_states[0][j] = Tx1_states[j];
+	// 	Tx_states[1][j] = Tx2_states[j];
+	// }
+	// cout << endl;
+		
+	// for (int m = 0; m < Rx_number; m++)
+	// {
+	// 	for (int k = 0; k < Tx_number; k++) //Tx_number
+	// 	{
+	// 		double px[bit_number] = {}, py[bit_number] = {}, pyx_joint[bit_number][bit_number] = {}, BER_counter = 0;
+	// 		vector<double> I_xy;
+	// 		// cout << "Time_slot_number: " << time_slots_number << endl;
+			
+	// 		px[1] = tecido.conditional_accumulate(Tx_states[k], time_size, 1)/time_size;
+	// 		px[0] = 1 - px[1];
+			
+	// 		py[1] = tecido.conditional_accumulate(Rx_states[m][k], time_size, 1)/time_size;
+	// 		if (py[1] == 0) py[1] = 0.00000000001;
+	// 		py[0] = 1 - py[1];
+
+	// 		for (int i = 0; i < time_size-time_slots_number; i++){
+	// 			// cout << Rx_states[m][k][i+time_slots_number] << endl;
+
+	// 			if (Rx_states[m][k][i+time_slots_number] != -1 && Tx_states[k][i] != -1) pyx_joint[Rx_states[m][k][i+time_slots_number]][Tx_states[k][i]]++;
+	// 			if (Rx_states[m][k][i+time_slots_number] != Tx_states[k][i]) BER_counter++;
+	// 		}
+	// 		pyx_joint[0][0] = time_size-pyx_joint[1][0];
+	// 		pyx_joint[0][1] = time_size-pyx_joint[1][1];
+	// 		BER.push_back(BER_counter/time_size);
+
+	// 		for (int y = 0; y < bit_number; y++){ // Number of y1 given x0; Number of y1 given x1; Number of y0 given x0; Number of y0 given x1
+	// 			for (int x = 0; x < bit_number; x++){
+	// 				pyx_joint[y][x] = pyx_joint[y][x]/time_size;
+	// 				// cout << "Pyx_joint: " << pyx_joint[y][x] << endl;
+	// 				// cout << "Py: " << py[y] << endl;
+	// 				if (pyx_joint[y][x] == 0) pyx_joint[y][x] = 0.00000000001;
+
+	// 				I_xy.push_back(px[x] * pyx_joint[y][x] * log2(pyx_joint[y][x]/py[y])); // Mutual Information
+	// 			}
+	// 		}
+
+	// 		// first = I_xy.begin();
+	// 		// for (; first != I_xy.end(); first++){
+	// 		// 	cout << "I_xy: " << *first << endl;
+	// 		// }
+
+	// 		channel_capacity.push_back(*max_element(I_xy.begin(), I_xy.end()));
+
+	// 		canais << rx_geometry << "," << frequency << "," << destination << "," << time_slot << "," << "Rx"+to_string(m)+"Tx"+to_string(k) << "," << channel_capacity[contc++] << "," << BER[contb++] << ",\n";
+
+	// 	}
+	// }
+
+	// mean_channel_capacity = accumulate(channel_capacity.begin(), channel_capacity.end(), 0.0)/channel_capacity.size();
+	// mean_BER = accumulate(BER.begin(), BER.end(), 0.0)/BER.size();
 
 	/* ### CALCULATING MIMO CHANNEL CAPACITY AND BER - END ### */
 
@@ -1739,11 +1867,11 @@ void simulation(int destination, double frequency, string topology, double time_
 int main(){
 
 	int simulation_number = 1, Rx_number = 5; // 0 < Rx_number < x && Rx_number <= y
-	vector<double> time_slot{0.5}; //{0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1}; //s
-	vector<double> frequencies{0.5}; //{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1}; //[Hz]
+	vector<double> time_slot{0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.1}; //s
+	vector<double> frequencies{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1}; //[Hz]
 	string topology = "RD";
 	string rx_geometry = "HL"; // HL = Horizontal Line; VL = Vertical Line; X = Cross (<= 5 cells); D = Diamond (== 5 cells)
-	int destination = 1;
+	// int destination = 1;
 
 	// Mean results
 	ofstream file_results;
@@ -1764,13 +1892,13 @@ int main(){
 	{
 		for (double frequency : frequencies)
 		{
-			// for (int destination = 1; destination < 7; destination++)
-			// {
+			for (int destination = 1; destination < 7; destination++)
+			{
 				for (double time:time_slot)
 				{
 					simulation(destination, frequency, topology, time, file_results, canais, cdatafile, Rx_number, rx_geometry);
 				}
-			// }
+			}
 		}
 	}
 	file_results.close();
