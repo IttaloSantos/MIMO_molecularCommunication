@@ -130,6 +130,7 @@ public:
 	Cell tecido[DIM_Y][DIM_X][DIM_Z];
 	list<int> *connect;
 	vector<int> rx_id;
+	string rx_name[5] = {"rx0","rx1","rx2","rx3","rx4"}; // Alterar!!
 	map <string,vector<double>> tx_concentration;
 
 	Network() {
@@ -139,7 +140,11 @@ public:
 		//SETTING VALUES
 		vector<double> tx1; tx_concentration["tx1"] = tx1;
 		vector<double> tx2; tx_concentration["tx2"] = tx2;
-
+		vector<double> rx0; tx_concentration["rx0"] = rx0;
+		vector<double> rx1; tx_concentration["rx1"] = rx1;
+		vector<double> rx2; tx_concentration["rx2"] = rx2;
+		vector<double> rx3; tx_concentration["rx3"] = rx3;
+		vector<double> rx4; tx_concentration["rx4"] = rx4;
 
 		int id_cont = 0;
 
@@ -420,7 +425,7 @@ public:
 				// cout << setprecision(5) << rx_reactions / total_reactions * Tx_p[j] << ",";
 				for (int k = 0; k < tx_size; k++){
 					gamma_distribution<> distribution(static_cast<int>(tx_concentration[tx_string][k] / ALPHA), rx_reactions / total_reactions + Tx_p[j]); //
-					CIR[i][j][k] = tx_concentration[tx_string][k]*distribution(gen);
+					CIR[i][j][k] = distribution(gen);
 					cout << CIR[i][j][k];
 					if(k != tx_size-1) CIR_ISI[i][j][k+1] = CIR[i][j][k];
 				}
@@ -432,7 +437,7 @@ public:
 			Rx_states[i] = new int[tx_size];
 			ISI[i][0] = 0;
 			for (int k = 0; k < tx_size; k++){
-				Rx_states[i][k] = modulation(CIR[i][0][k] + CIR[i][1][k]);
+				Rx_states[i][k] = modulation(CIR[i][0][k]*tx_concentration["tx1"][k]);// + CIR[i][1][k]);
 				if(k != tx_size-1) ISI[i][k+1] = CIR_ISI[i][0][k] + CIR_ISI[i][1][k];
 			}
 		}
@@ -1547,7 +1552,10 @@ void simulation(int destination, double frequency, string topology, double time_
 									tecido.accumulate(x_c, y_c, z_c, "tx_rx_reactions", 1);
 								}
 								for (first = tecido.rx_id.begin(); first != tecido.rx_id.end(); first++){
-									if (connections[conn] == *first) tecido.accumulate(*first, "tx_rx_reactions", 1);
+									if (connections[conn] == *first){
+										tecido.accumulate(*first, "tx_rx_reactions", 1);
+										tecido.accumulate(*first, "C_variation", ALPHA);
+									}
 								}
 								// Modulation and Demodulation - End
 
@@ -1581,6 +1589,12 @@ void simulation(int destination, double frequency, string topology, double time_
 				tecido.tx_concentration["tx2"].push_back(tecido.get(tx_x_2, tx_y_2, tx_z_2, "C_variation"));
 				tecido.set(tx_x, tx_y, tx_z, "C_variation", 0);
 				tecido.set(tx_x_2, tx_y_2, tx_z_2, "C_variation", 0);
+
+				first = tecido.rx_id.begin();
+				for (int i = 0; i != Rx_number; i++){
+					tecido.tx_concentration[tecido.rx_name[i]].push_back(tecido.get(*(first+i), "C_variation"));
+					tecido.accumulate(*first, "C_variation", 0);
+				}
 
 				current_time_modulation = 0;
 			}
@@ -1736,13 +1750,13 @@ void simulation(int destination, double frequency, string topology, double time_
 			}
 			if (Rx_states[m][i+(time_slots_number+rx_x)] != Tx_states[0][i] && Rx_states[m][i+(time_slots_number+rx_x)] != Tx_states[1][i]) BER_counter++;
 		}
-		pyx_joint[0][0] = time_size-pyx_joint[1][0];
-		pyx_joint[0][1] = time_size-pyx_joint[1][1];
-		BER.push_back(BER_counter/time_size);
+		pyx_joint[0][0] = 2*time_size-pyx_joint[1][0];
+		pyx_joint[0][1] = 2*time_size-pyx_joint[1][1];
+		BER.push_back(BER_counter/(2*time_size));
 
 		for (int y = 0; y < bit_number; y++){ // Number of y1 given x0; Number of y1 given x1; Number of y0 given x0; Number of y0 given x1
 			for (int x = 0; x < bit_number; x++){
-				pyx_joint[y][x] = pyx_joint[y][x]/time_size;
+				pyx_joint[y][x] = pyx_joint[y][x]/(2*time_size);
 				// cout << "Pyx_joint: " << pyx_joint[y][x] << endl;
 				// cout << "Py: " << py[y] << endl;
 				if (pyx_joint[y][x] == 0) pyx_joint[y][x] = 0.00000000001;
@@ -1867,11 +1881,11 @@ void simulation(int destination, double frequency, string topology, double time_
 int main(){
 
 	int simulation_number = 1, Rx_number = 5; // 0 < Rx_number < x && Rx_number <= y
-	vector<double> time_slot{0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.1}; //s
-	vector<double> frequencies{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1}; //[Hz]
+	vector<double> time_slot{0.06}; //{0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.1}; //s
+	vector<double> frequencies{0.6}; //{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1}; //[Hz]
 	string topology = "RD";
-	string rx_geometry = "HL"; // HL = Horizontal Line; VL = Vertical Line; X = Cross (<= 5 cells); D = Diamond (== 5 cells)
-	// int destination = 1;
+	string rx_geometry = "VL"; // HL = Horizontal Line; VL = Vertical Line; X = Cross (<= 5 cells); D = Diamond (== 5 cells)
+	int destination = 1;
 
 	// Mean results
 	ofstream file_results;
@@ -1892,13 +1906,13 @@ int main(){
 	{
 		for (double frequency : frequencies)
 		{
-			for (int destination = 1; destination < 7; destination++)
-			{
+			// for (int destination = 1; destination < 7; destination++)
+			// {
 				for (double time:time_slot)
 				{
 					simulation(destination, frequency, topology, time, file_results, canais, cdatafile, Rx_number, rx_geometry);
 				}
-			}
+			// }
 		}
 	}
 	file_results.close();
