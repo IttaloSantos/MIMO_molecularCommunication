@@ -423,7 +423,7 @@ public:
 				// cout << setprecision(5) << Tx_p[j] << ",";
 				// cout << setprecision(5) << rx_reactions / total_reactions * Tx_p[j] << ",";
 				for (int k = 0; k < tx_size; k++){
-					gamma_distribution<> distribution(static_cast<int>(tx_concentration[tx_string][k] / ALPHA), rx_reactions / total_reactions + Tx_p[j]); //
+					gamma_distribution<> distribution(static_cast<int>((tx_concentration[rx_name[i]][k] + tx_concentration[tx_string][k]) / (2 * ALPHA)), rx_reactions / total_reactions + Tx_p[j]); //
 					CIR[i][j][k] = distribution(gen);
 					cout << CIR[i][j][k];
 				}
@@ -1799,8 +1799,8 @@ void simulation(int destination, double frequency, string topology, double time_
 int main(){
 
 	int simulation_number = 1, Rx_number = 5; // 0 < Rx_number < x && Rx_number <= y
-	vector<double> time_slot{0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.1}; //s
-	vector<double> frequencies{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1}; //[Hz]
+	vector<double> time_slot{0.06};//{0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.1}; //s
+	vector<double> frequencies{0.6};//{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1}; //[Hz]
 	string topology = "RD";
 	string rx_geometry = "HL"; // HL = Horizontal Line; VL = Vertical Line; X = Cross (<= 5 cells); D = Diamond (== 5 cells)
 	// int destination = 6;
